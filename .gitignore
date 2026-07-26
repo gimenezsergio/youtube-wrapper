@@ -1,0 +1,26 @@
+# Python environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environments / Secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDEs
+.vscode/
+.idea/
+.DS_Store

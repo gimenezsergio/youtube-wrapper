@@ -1,0 +1,12 @@
+# Configuración de Ruff para formateo y linter de Python
+line-length = 120
+target-version = "py310"
+
+[lint]
+select = ["E", "F", "W", "I", "B", "C90"]
+ignore = []
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
