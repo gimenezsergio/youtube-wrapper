@@ -1,0 +1,1008 @@
+openapi: 3.1.0
+info:
+  title: YouTube Curator API
+  version: 0.1.0
+  description: API privada para la aplicación personal YouTube Curator.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+tags:
+  - name: Auth
+    description: Sesión del propietario y autorización con Google.
+  - name: Categories
+    description: Categorías manuales y sus palabras clave.
+  - name: Channels
+    description: Canales importados, seguidos y clasificados.
+  - name: Videos
+    description: Consulta, apertura y estado de videos.
+  - name: Classification
+    description: Sugerencias automáticas y decisiones manuales.
+  - name: Discovery
+    description: Candidatos y feedback de descubrimiento.
+  - name: Refresh
+    description: Actualizaciones manuales persistentes.
+  - name: Settings
+    description: Diagnóstico y exportación segura.
+paths:
+  /auth/status:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Consultar estado de autenticación
+      operationId: getAuthStatus
+      responses:
+        "200":
+          description: Estado de autenticación.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthStatus"
+  /auth/login:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Iniciar autorización con Google
+      operationId: beginLogin
+      responses:
+        "302":
+          description: Redirección a Google OAuth.
+  /auth/callback:
+    get:
+      tags: [Auth]
+      security: []
+      summary: Completar autorización con Google
+      operationId: completeLogin
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Sesión creada y redirección a la aplicación.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Cerrar sesión
+      operationId: logout
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "204":
+          description: Sesión cerrada.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /categories:
+    get:
+      tags: [Categories]
+      summary: Listar categorías
+      operationId: listCategories
+      responses:
+        "200":
+          description: Categorías ordenadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Category"
+    post:
+      tags: [Categories]
+      summary: Crear categoría
+      operationId: createCategory
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryInput"
+      responses:
+        "201":
+          description: Categoría creada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /categories/reorder:
+    put:
+      tags: [Categories]
+      summary: Reordenar categorías
+      operationId: reorderCategories
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoryIds]
+              properties:
+                categoryIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: integer
+      responses:
+        "204":
+          description: Orden actualizado.
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /categories/{categoryId}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      tags: [Categories]
+      summary: Obtener categoría
+      operationId: getCategory
+      responses:
+        "200":
+          description: Categoría.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Categories]
+      summary: Actualizar categoría
+      operationId: updateCategory
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoryInput"
+      responses:
+        "200":
+          description: Categoría actualizada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Category"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+    delete:
+      tags: [Categories]
+      summary: Eliminar categoría
+      operationId: deleteCategory
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "204":
+          description: Categoría eliminada.
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /channels:
+    get:
+      tags: [Channels]
+      summary: Listar canales
+      operationId: listChannels
+      parameters:
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: unclassified
+          in: query
+          schema:
+            type: boolean
+        - name: subscribed
+          in: query
+          schema:
+            type: boolean
+        - name: query
+          in: query
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Canales paginados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelPage"
+  /channels/{channelId}:
+    get:
+      tags: [Channels]
+      summary: Obtener canal
+      operationId: getChannel
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+      responses:
+        "200":
+          description: Canal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /channels/{channelId}/block:
+    put:
+      tags: [Channels]
+      summary: Bloquear o desbloquear canal
+      operationId: setChannelBlocked
+      parameters:
+        - $ref: "#/components/parameters/ChannelId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [blocked]
+              properties:
+                blocked:
+                  type: boolean
+      responses:
+        "200":
+          description: Estado de bloqueo actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /channels/category-assignments:
+    put:
+      tags: [Channels]
+      summary: Actualizar categorías de varios canales
+      operationId: updateChannelCategoryAssignments
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [channelIds, addCategoryIds, removeCategoryIds]
+              properties:
+                channelIds:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: integer
+                addCategoryIds:
+                  type: array
+                  items:
+                    type: integer
+                removeCategoryIds:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        "200":
+          description: Resultado de la operación.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updatedChannels]
+                properties:
+                  updatedChannels:
+                    type: integer
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /videos:
+    get:
+      tags: [Videos]
+      summary: Listar videos filtrados
+      operationId: listVideos
+      parameters:
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: channelIds
+          in: query
+          description: IDs locales separados por coma.
+          schema:
+            type: string
+        - name: watched
+          in: query
+          schema:
+            type: string
+            enum: [all, "true", "false"]
+            default: all
+        - name: origin
+          in: query
+          schema:
+            type: string
+            enum: [all, followed, discovery]
+            default: all
+        - name: view
+          in: query
+          schema:
+            type: string
+            enum: [feed, channels]
+            default: feed
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Videos paginados o agrupados.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+  /videos/{videoId}/open:
+    post:
+      tags: [Videos]
+      summary: Registrar apertura de video
+      operationId: openVideo
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "200":
+          description: Apertura registrada.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, watched, openedAt]
+                properties:
+                  url:
+                    type: string
+                    format: uri
+                  watched:
+                    type: boolean
+                  openedAt:
+                    type: string
+                    format: date-time
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /videos/{videoId}/watched:
+    put:
+      tags: [Videos]
+      summary: Cambiar estado visto
+      operationId: setWatched
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [watched]
+              properties:
+                watched:
+                  type: boolean
+      responses:
+        "200":
+          description: Estado actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VideoUserState"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /classification/suggestions:
+    get:
+      tags: [Classification]
+      summary: Listar sugerencias de clasificación
+      operationId: listClassificationSuggestions
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, rejected, superseded]
+            default: pending
+        - name: channelId
+          in: query
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Sugerencias.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ClassificationSuggestion"
+                  nextCursor:
+                    type: [string, "null"]
+  /classification/decisions:
+    post:
+      tags: [Classification]
+      summary: Resolver sugerencias de clasificación
+      operationId: resolveClassificationSuggestions
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decisions]
+              properties:
+                decisions:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [suggestionId, action]
+                    properties:
+                      suggestionId:
+                        type: integer
+                      action:
+                        type: string
+                        enum: [accept, reject, replace]
+                      replacementCategoryIds:
+                        type: array
+                        items:
+                          type: integer
+      responses:
+        "200":
+          description: Decisiones aplicadas.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [resolved]
+                properties:
+                  resolved:
+                    type: integer
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /discoveries/{videoId}/feedback:
+    post:
+      tags: [Discovery]
+      summary: Registrar feedback de descubrimiento
+      operationId: submitDiscoveryFeedback
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [categoryId, action]
+              properties:
+                categoryId:
+                  type: integer
+                action:
+                  type: string
+                  enum:
+                    - more_like_this
+                    - less_like_this
+                    - hide_video
+                    - block_channel
+                    - accept_channel
+      responses:
+        "200":
+          description: Feedback aplicado.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [applied]
+                properties:
+                  applied:
+                    type: boolean
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /refresh-runs:
+    get:
+      tags: [Refresh]
+      summary: Listar actualizaciones
+      operationId: listRefreshRuns
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Historial.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RefreshRun"
+    post:
+      tags: [Refresh]
+      summary: Solicitar actualización manual
+      operationId: startRefresh
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                stages:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - subscriptions
+                      - channels
+                      - followed_videos
+                      - classification
+                      - discovery
+      responses:
+        "202":
+          description: Actualización iniciada.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshRun"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /refresh-runs/{refreshRunId}:
+    get:
+      tags: [Refresh]
+      summary: Consultar actualización
+      operationId: getRefreshRun
+      parameters:
+        - name: refreshRunId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Estado de actualización.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RefreshRun"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /settings/export:
+    get:
+      tags: [Settings]
+      summary: Exportar configuración y datos personales
+      operationId: exportSettings
+      responses:
+        "200":
+          description: Exportación JSON sin secretos.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /settings/status:
+    get:
+      tags: [Settings]
+      summary: Consultar diagnóstico seguro
+      operationId: getSettingsStatus
+      responses:
+        "200":
+          description: Diagnóstico seguro de configuración e integraciones.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - googleConnected
+                  - lastSuccessfulRefreshAt
+                  - activeRefresh
+                  - discoveryBudget
+                properties:
+                  googleConnected:
+                    type: boolean
+                  lastSuccessfulRefreshAt:
+                    type: [string, "null"]
+                    format: date-time
+                  activeRefresh:
+                    anyOf:
+                      - $ref: "#/components/schemas/RefreshRun"
+                      - type: "null"
+                  discoveryBudget:
+                    type: object
+                    required: [maxPerRefresh, maxPerCategory]
+                    properties:
+                      maxPerRefresh:
+                        type: integer
+                      maxPerCategory:
+                        type: integer
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: session
+  parameters:
+    CsrfHeader:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+    CategoryId:
+      name: categoryId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ChannelId:
+      name: channelId
+      in: path
+      required: true
+      schema:
+        type: integer
+    VideoId:
+      name: videoId
+      in: path
+      required: true
+      schema:
+        type: integer
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 30
+  responses:
+    BadRequest:
+      description: Parámetros inválidos.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Operación no permitida.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Recurso inexistente.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Conflicto de estado.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ValidationError:
+      description: Error de validación.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    AuthStatus:
+      type: object
+      required: [authenticated]
+      properties:
+        authenticated:
+          type: boolean
+        email:
+          type: [string, "null"]
+          format: email
+        csrfToken:
+          type: [string, "null"]
+    CategoryInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        description:
+          type: string
+          maxLength: 500
+        keywords:
+          type: array
+          items:
+            $ref: "#/components/schemas/Keyword"
+    Category:
+      allOf:
+        - $ref: "#/components/schemas/CategoryInput"
+        - type: object
+          required: [id, position, channelCount]
+          properties:
+            id:
+              type: integer
+            position:
+              type: integer
+            channelCount:
+              type: integer
+    Keyword:
+      type: object
+      required: [term, polarity, weight]
+      properties:
+        term:
+          type: string
+          minLength: 1
+          maxLength: 120
+        polarity:
+          type: string
+          enum: [positive, negative]
+        weight:
+          type: number
+          minimum: 0
+          maximum: 10
+          default: 1
+    Channel:
+      type: object
+      required:
+        - id
+        - youtubeChannelId
+        - title
+        - subscribed
+        - locallyFollowed
+        - blocked
+        - categoryIds
+      properties:
+        id:
+          type: integer
+        youtubeChannelId:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        thumbnailUrl:
+          type: [string, "null"]
+          format: uri
+        subscribed:
+          type: boolean
+        locallyFollowed:
+          type: boolean
+        blocked:
+          type: boolean
+        categoryIds:
+          type: array
+          items:
+            type: integer
+    ChannelPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
+        nextCursor:
+          type: [string, "null"]
+    Video:
+      type: object
+      required:
+        - id
+        - youtubeVideoId
+        - channel
+        - title
+        - publishedAt
+        - origin
+        - watched
+      properties:
+        id:
+          type: integer
+        youtubeVideoId:
+          type: string
+        channel:
+          $ref: "#/components/schemas/Channel"
+        title:
+          type: string
+        description:
+          type: string
+        publishedAt:
+          type: string
+          format: date-time
+        durationSeconds:
+          type: [integer, "null"]
+        thumbnailUrl:
+          type: [string, "null"]
+          format: uri
+        contentType:
+          type: string
+          enum: [video, live, upcoming, unknown]
+        origin:
+          type: string
+          enum: [followed, discovery]
+        watched:
+          type: boolean
+        discoveryContexts:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryInfo"
+    VideoPage:
+      type: object
+      required: [view, items]
+      properties:
+        view:
+          type: string
+          enum: [feed, channels]
+        items:
+          type: array
+          description: Videos en feed o grupos de canal según `view`.
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/Video"
+              - $ref: "#/components/schemas/ChannelVideoGroup"
+        nextCursor:
+          type: [string, "null"]
+    ChannelVideoGroup:
+      type: object
+      required: [channel, videos]
+      properties:
+        channel:
+          $ref: "#/components/schemas/Channel"
+        videos:
+          type: array
+          items:
+            $ref: "#/components/schemas/Video"
+    DiscoveryInfo:
+      type: object
+      required: [categoryId, score, reasons]
+      properties:
+        categoryId:
+          type: integer
+        score:
+          type: number
+          minimum: 0
+          maximum: 100
+        reasons:
+          type: array
+          minItems: 1
+          items:
+            type: string
+    VideoUserState:
+      type: object
+      required: [videoId, watched]
+      properties:
+        videoId:
+          type: integer
+        watched:
+          type: boolean
+        openedAt:
+          type: [string, "null"]
+          format: date-time
+        source:
+          type: [string, "null"]
+          enum: [opened, manual, youtube_import, null]
+    ClassificationSuggestion:
+      type: object
+      required:
+        - id
+        - channel
+        - category
+        - confidence
+        - explanation
+        - status
+        - autoApplied
+      properties:
+        id:
+          type: integer
+        channel:
+          $ref: "#/components/schemas/Channel"
+        category:
+          $ref: "#/components/schemas/Category"
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 1
+        explanation:
+          type: string
+        status:
+          type: string
+          enum: [pending, accepted, rejected, superseded]
+        autoApplied:
+          type: boolean
+    RefreshRun:
+      type: object
+      required:
+        - id
+        - status
+        - stages
+        - requestedAt
+        - counters
+        - errors
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+          enum: [pending, running, succeeded, partial, failed]
+        currentStage:
+          type: [string, "null"]
+        stages:
+          type: array
+          items:
+            type: string
+        requestedAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, "null"]
+          format: date-time
+        finishedAt:
+          type: [string, "null"]
+          format: date-time
+        counters:
+          type: object
+          additionalProperties:
+            type: integer
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        heartbeatAt:
+          type: [string, "null"]
+          format: date-time
+        leaseExpiresAt:
+          type: [string, "null"]
+          format: date-time
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
