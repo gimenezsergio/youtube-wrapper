@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Curator — Reorganiza tu contenido</title>
+    
+    <!-- Meta SEO -->
+    <meta name="description" content="Una aplicación personal para organizar y descubrir videos de YouTube sin las distracciones del algoritmo oficial.">
+    <meta name="theme-color" content="#0f172a">
+    
+    <!-- PWA -->
+    <link rel="manifest" href="/static/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    
+    <!-- Google Fonts: Outfit & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- CSS Estilos propios (premium design system) -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div id="app-shell" class="app-shell">
+        <!-- Sidebar para navegación en escritorio, Drawer en móvil -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-brand">
+                <div class="logo-icon">YT</div>
+                <h1 class="brand-title">YT Curator</h1>
+            </div>
+            
+            <nav class="sidebar-nav">
+                <div class="nav-section-title">Mi Biblioteca</div>
+                <a href="/" id="nav-home" class="nav-item active">
+                    <span class="nav-icon">🔥</span>
+                    <span class="nav-label">Todos los Feeds</span>
+                </a>
+                <a href="/channels" id="nav-channels" class="nav-item">
+                    <span class="nav-icon">📺</span>
+                    <span class="nav-label">Mis Canales</span>
+                </a>
+                
+                <div class="nav-section-title">Categorías</div>
+                <div id="sidebar-categories" class="categories-list">
+                    <!-- Categorías cargadas dinámicamente -->
+                    <div class="loading-placeholder-nav">Cargando categorías...</div>
+                </div>
+                
+                <div class="nav-section-title">Herramientas</div>
+                <a href="/discoveries" id="nav-discoveries" class="nav-item">
+                    <span class="nav-icon">✨</span>
+                    <span class="nav-label">Descubrimiento</span>
+                </a>
+                <a href="/settings" id="nav-settings" class="nav-item">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">Ajustes</span>
+                </a>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <span class="user-dot"></span>
+                    <span id="user-email" class="user-email">Sin conexión</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Contenido principal -->
+        <main class="main-content">
+            <header class="top-header">
+                <!-- Botón de menú móvil -->
+                <button id="menu-toggle" class="menu-toggle" aria-label="Abrir menú" aria-expanded="false">
+                    <span class="hamburger"></span>
+                </button>
+                
+                <div class="header-search-bar">
+                    <!-- Filtros globales rápidos -->
+                    <div class="quick-filters">
+                        <button id="filter-watched-all" class="filter-chip active">Todos</button>
+                        <button id="filter-watched-unwatched" class="filter-chip">No vistos</button>
+                    </div>
+                </div>
+
+                <div class="header-actions">
+                    <!-- Botón de actualización manual persistente -->
+                    <button id="btn-refresh" class="btn-refresh" title="Actualizar contenido">
+                        <span class="refresh-icon">🔄</span>
+                        <span class="refresh-label">Actualizar</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Contenedor dinámico de vistas -->
+            <div id="view-container" class="view-container">
+                <!-- Aquí se inyectarán las vistas mediante JS (SPA) -->
+                <section class="welcome-screen">
+                    <div class="hero-card">
+                        <h2 class="hero-title">Recupera el control de tu feed</h2>
+                        <p class="hero-description">Organiza tus suscripciones a tu manera y descubre contenido nuevo guiado por tus propios términos, sin algoritmos persuasivos.</p>
+                        <div class="hero-actions">
+                            <a href="/settings" class="btn-primary">Configurar Conexión</a>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal para notificaciones o carga -->
+    <div id="refresh-overlay" class="refresh-overlay hidden">
+        <div class="refresh-card">
+            <h3 class="refresh-title">Actualizando base de datos</h3>
+            <div class="progress-bar-container">
+                <div id="refresh-progress-bar" class="progress-bar" style="width: 0%"></div>
+            </div>
+            <div id="refresh-stage" class="refresh-stage">Iniciando...</div>
+            <div id="refresh-stats" class="refresh-stats"></div>
+        </div>
+    </div>
+
+    <!-- ES Module Application JavaScript -->
+    <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
