@@ -41,7 +41,10 @@
                     <span class="nav-label">Mis Canales</span>
                 </a>
                 
-                <div class="nav-section-title">Categorías</div>
+                <div class="nav-section-title-row">
+                    <span class="nav-section-title">Categorías</span>
+                    <button id="btn-manage-categories" class="btn-manage-icon" title="Gestionar categorías">⚙️</button>
+                </div>
                 <div id="sidebar-categories" class="categories-list">
                     <!-- Categorías cargadas dinámicamente -->
                     <div class="loading-placeholder-nav">Cargando categorías...</div>
@@ -119,6 +122,77 @@
             <a href="/api/v1/auth/login" class="btn-primary btn-login">
                 <span class="google-icon">🔑</span> Conectarse con Google
             </a>
+        </div>
+    </div>
+
+    <!-- Modal de Gestión de Categorías (Fase 2) -->
+    <div id="categories-modal" class="modal-overlay hidden">
+        <div class="modal-card categories-modal-card">
+            <header class="modal-header">
+                <h3 class="modal-title">Gestionar Categorías</h3>
+                <button id="btn-close-categories-modal" class="btn-close-modal">&times;</button>
+            </header>
+            
+            <div class="modal-body">
+                <!-- Pantalla de Listado y Reordenamiento de Categorías -->
+                <div id="categories-list-view">
+                    <div class="modal-section-header">
+                        <span>Tus Categorías</span>
+                        <button id="btn-add-category" class="btn-primary btn-sm">+ Nueva Categoría</button>
+                    </div>
+                    <div id="categories-manage-list" class="manage-list">
+                        <!-- Cargado dinámicamente -->
+                    </div>
+                </div>
+
+                <!-- Formulario de Creación/Edición de Categoría (Oculto por defecto) -->
+                <form id="category-form" class="category-form hidden">
+                    <input type="hidden" id="form-category-id" value="">
+                    
+                    <div class="form-group">
+                        <label for="category-name-input">Nombre *</label>
+                        <input type="text" id="category-name-input" required placeholder="Ej: Programación, Fotografía" max="80">
+                        <div id="category-name-error" class="form-field-error"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="category-desc-input">Descripción</label>
+                        <textarea id="category-desc-input" placeholder="Breve descripción de la categoría" rows="2" max="500"></textarea>
+                    </div>
+
+                    <div class="form-group keywords-form-group">
+                        <label>Palabras Clave (Keywords)</label>
+                        <p class="form-instruction">Configura términos para el clasificador automático y descubrimiento.</p>
+                        
+                        <div class="keyword-inputs">
+                            <input type="text" id="kw-term-input" placeholder="Término (Ej: Python)">
+                            <select id="kw-polarity-select">
+                                <option value="positive">Positivo</option>
+                                <option value="negative">Negativo</option>
+                            </select>
+                            <div class="weight-slider-container">
+                                <label for="kw-weight-input" class="weight-label">Peso: <span id="kw-weight-value">1.0</span></label>
+                                <input type="range" id="kw-weight-input" min="0" max="10" step="0.5" value="1.0">
+                            </div>
+                            <button type="button" id="btn-add-kw" class="btn-secondary">Añadir</button>
+                        </div>
+                        
+                        <!-- Listado de palabras clave añadidas (tags visuales) -->
+                        <div id="category-keywords-tags" class="keywords-tags-container">
+                            <!-- Tags inyectados dinámicamente -->
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <div id="category-form-error" class="form-field-error"></div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" id="btn-cancel-category-form" class="btn-secondary">Cancelar</button>
+                        <button type="submit" class="btn-primary">Guardar Categoría</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 

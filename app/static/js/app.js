@@ -1,6 +1,8 @@
 // YouTube Curator — Main Application Entry (ES Module)
 
 let csrfToken = null;
+let activeFormKeywords = []; // Array temporal para las keywords en el formulario
+let currentCategories = []; // Array con el listado actual de categorías cargadas
 
 document.addEventListener("DOMContentLoaded", () => {
     initApp();
@@ -17,6 +19,9 @@ function initApp() {
     
     // Configurar manejador del botón de actualización
     setupRefreshButton();
+
+    // Configurar administrador de categorías (Fase 2)
+    setupCategoryManager();
 }
 
 function setupMobileMenu() {
@@ -146,29 +151,337 @@ async function loadCategories() {
         const response = await apiFetch("/api/v1/categories");
         if (response.ok) {
             const data = await response.json();
+            currentCategories = data.items || [];
             categoriesList.innerHTML = "";
             
-            if (!data.items || data.items.length === 0) {
+            if (currentCategories.length === 0) {
                 categoriesList.innerHTML = '<div class="loading-placeholder-nav">Sin categorías</div>';
                 return;
             }
             
-            data.items.forEach(category => {
+            currentCategories.forEach(category => {
                 const item = document.createElement("a");
                 item.href = `/category/${category.id}`;
                 item.className = "nav-item";
+                item.setAttribute("data-category-id", category.id);
                 item.innerHTML = `
                     <span class="nav-icon">📁</span>
                     <span class="nav-label">${escapeHtml(category.name)}</span>
                 `;
+                
+                // Interceptar click para navegación SPA (Fase 2)
+                item.addEventListener("click", (e) => {
+                    e.preventDefault();
+                    selectCategoryInSidebar(category.id);
+                });
+                
                 categoriesList.appendChild(item);
             });
+            
+            // Si la URL ya tiene una categoría seleccionada en la query string, activarla
+            const urlParams = new URLSearchParams(window.location.search);
+            const activeCatId = urlParams.get("category");
+            if (activeCatId) {
+                selectCategoryInSidebar(parseInt(activeCatId));
+            }
         } else {
             categoriesList.innerHTML = '<div class="loading-placeholder-nav">Error al cargar</div>';
         }
     } catch (error) {
         console.error("Error cargando categorías:", error);
         categoriesList.innerHTML = '<div class="loading-placeholder-nav">Error de conexión</div>';
+    }
+}
+
+function selectCategoryInSidebar(categoryId) {
+    // Quitar active de todas
+    document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
+    
+    // Añadir active a la seleccionada
+    const activeItem = document.querySelector(`.sidebar-nav .nav-item[data-category-id="${categoryId}"]`);
+    if (activeItem) {
+        activeItem.classList.add("active");
+    }
+    
+    // Actualizar la URL de manera SPA (Fase 2)
+    const url = new URL(window.location.href);
+    url.searchParams.set("category", categoryId);
+    window.history.pushState({}, "", url.toString());
+    
+    // Cargar el feed de esa categoría (Se implementará en Fase 5/8/9, ahora solo dejamos logueado)
+    console.log(`Navegando a la categoría ID: ${categoryId}`);
+}
+
+/* --- Administrador de Categorías (Fase 2) --- */
+
+function setupCategoryManager() {
+    const btnManage = document.getElementById("btn-manage-categories");
+    const modal = document.getElementById("categories-modal");
+    const btnCloseModal = document.getElementById("btn-close-categories-modal");
+    const btnAddCategory = document.getElementById("btn-add-category");
+    const btnCancelForm = document.getElementById("btn-cancel-category-form");
+    const form = document.getElementById("category-form");
+    
+    const listView = document.getElementById("categories-list-view");
+    const btnAddKw = document.getElementById("btn-add-kw");
+    const kwWeightInput = document.getElementById("kw-weight-input");
+    const kwWeightValue = document.getElementById("kw-weight-value");
+
+    if (!modal) return;
+
+    // Abrir/Cerrar Modal
+    btnManage.addEventListener("click", () => {
+        modal.classList.remove("hidden");
+        loadManageCategories();
+        hideCategoryForm();
+    });
+
+    btnCloseModal.addEventListener("click", () => {
+        modal.classList.add("hidden");
+    });
+
+    // Cambiar al formulario
+    btnAddCategory.addEventListener("click", () => {
+        showCategoryForm();
+    });
+
+    btnCancelForm.addEventListener("click", () => {
+        hideCategoryForm();
+    });
+
+    // Control de slider de peso en palabra clave
+    kwWeightInput.addEventListener("input", (e) => {
+        kwWeightValue.textContent = parseFloat(e.target.value).toFixed(1);
+    });
+
+    // Agregar palabra clave al array temporal
+    btnAddKw.addEventListener("click", () => {
+        const termInput = document.getElementById("kw-term-input");
+        const polaritySelect = document.getElementById("kw-polarity-select");
+        
+        const term = termInput.value.trim();
+        const polarity = polaritySelect.value;
+        const weight = parseFloat(kwWeightInput.value);
+
+        if (!term) return;
+
+        // Comprobar duplicado en la interfaz
+        if (activeFormKeywords.some(k => k.term.toLowerCase() === term.toLowerCase())) {
+            alert("Este término ya está añadido.");
+            return;
+        }
+
+        activeFormKeywords.push({ term, polarity, weight });
+        renderKeywordTags();
+        
+        // Reset inputs
+        termInput.value = "";
+        kwWeightInput.value = "1.0";
+        kwWeightValue.textContent = "1.0";
+    });
+
+    // Guardar Categoría (Submit Form)
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        
+        const id = document.getElementById("form-category-id").value;
+        const name = document.getElementById("category-name-input").value.trim();
+        const description = document.getElementById("category-desc-input").value.trim();
+        const formError = document.getElementById("category-form-error");
+
+        formError.classList.add("hidden");
+        formError.textContent = "";
+
+        const payload = {
+            name,
+            description,
+            keywords: activeFormKeywords
+        };
+
+        const url = id ? `/api/v1/categories/${id}` : "/api/v1/categories";
+        const method = id ? "PUT" : "POST";
+
+        try {
+            const response = await apiFetch(url, {
+                method,
+                body: payload
+            });
+
+            if (response.ok) {
+                hideCategoryForm();
+                loadManageCategories();
+                loadCategories(); // Refrescar el sidebar
+            } else {
+                const errData = await response.json();
+                formError.textContent = errData.error?.message || "Error al guardar la categoría.";
+                formError.classList.remove("hidden");
+            }
+        } catch (error) {
+            console.error("Error al guardar categoría:", error);
+            formError.textContent = "Error de conexión con el servidor.";
+            formError.classList.remove("hidden");
+        }
+    });
+}
+
+function showCategoryForm(category = null) {
+    const listView = document.getElementById("categories-list-view");
+    const form = document.getElementById("category-form");
+    const modalTitle = document.querySelector(".categories-modal-card .modal-title");
+    const formError = document.getElementById("category-form-error");
+
+    listView.classList.add("hidden");
+    form.classList.remove("hidden");
+    formError.classList.add("hidden");
+    form.reset();
+
+    if (category) {
+        modalTitle.textContent = "Editar Categoría";
+        document.getElementById("form-category-id").value = category.id;
+        document.getElementById("category-name-input").value = category.name;
+        document.getElementById("category-desc-input").value = category.description || "";
+        activeFormKeywords = [...(category.keywords || [])];
+    } else {
+        modalTitle.textContent = "Nueva Categoría";
+        document.getElementById("form-category-id").value = "";
+        activeFormKeywords = [];
+    }
+
+    renderKeywordTags();
+}
+
+function hideCategoryForm() {
+    const listView = document.getElementById("categories-list-view");
+    const form = document.getElementById("category-form");
+    const modalTitle = document.querySelector(".categories-modal-card .modal-title");
+
+    listView.classList.remove("hidden");
+    form.classList.add("hidden");
+    modalTitle.textContent = "Gestionar Categorías";
+    form.reset();
+}
+
+function renderKeywordTags() {
+    const container = document.getElementById("category-keywords-tags");
+    if (!container) return;
+
+    container.innerHTML = "";
+    if (activeFormKeywords.length === 0) {
+        container.innerHTML = '<span class="form-instruction">No hay palabras clave configuradas.</span>';
+        return;
+    }
+
+    activeFormKeywords.forEach((kw, index) => {
+        const tag = document.createElement("span");
+        tag.className = `keyword-tag tag-${kw.polarity}`;
+        tag.innerHTML = `
+            <span>${escapeHtml(kw.term)}</span>
+            <span class="keyword-tag-weight">${kw.weight.toFixed(1)}</span>
+            <button type="button" class="btn-remove-tag" data-index="${index}">&times;</button>
+        `;
+
+        tag.querySelector(".btn-remove-tag").addEventListener("click", () => {
+            activeFormKeywords.splice(index, 1);
+            renderKeywordTags();
+        });
+
+        container.appendChild(tag);
+    });
+}
+
+async function loadManageCategories() {
+    const listContainer = document.getElementById("categories-manage-list");
+    if (!listContainer) return;
+
+    listContainer.innerHTML = '<div class="loading-placeholder-nav">Cargando categorías...</div>';
+
+    try {
+        const response = await apiFetch("/api/v1/categories");
+        if (response.ok) {
+            const data = await response.json();
+            const categories = data.items || [];
+            listContainer.innerHTML = "";
+
+            if (categories.length === 0) {
+                listContainer.innerHTML = '<div class="loading-placeholder-nav">No hay categorías. Crea una para empezar.</div>';
+                return;
+            }
+
+            categories.forEach((cat, idx) => {
+                const item = document.createElement("div");
+                item.className = "manage-item";
+                item.innerHTML = `
+                    <div class="manage-item-info">
+                        <span class="manage-item-name">${escapeHtml(cat.name)}</span>
+                        <span class="manage-item-desc">${escapeHtml(cat.description || "Sin descripción")}</span>
+                    </div>
+                    <div class="manage-item-actions">
+                        <button class="btn-icon-sm btn-up" title="Subir" ${idx === 0 ? "disabled" : ""}>▲</button>
+                        <button class="btn-icon-sm btn-down" title="Bajar" ${idx === categories.length - 1 ? "disabled" : ""}>▼</button>
+                        <button class="btn-icon-sm btn-edit" title="Editar">✏️</button>
+                        <button class="btn-icon-sm btn-delete" title="Eliminar">🗑️</button>
+                    </div>
+                `;
+
+                // Subir categoría
+                item.querySelector(".btn-up")?.addEventListener("click", () => {
+                    moveCategory(categories, idx, idx - 1);
+                });
+
+                // Bajar categoría
+                item.querySelector(".btn-down")?.addEventListener("click", () => {
+                    moveCategory(categories, idx, idx + 1);
+                });
+
+                // Editar categoría
+                item.querySelector(".btn-edit").addEventListener("click", () => {
+                    showCategoryForm(cat);
+                });
+
+                // Eliminar categoría
+                item.querySelector(".btn-delete").addEventListener("click", async () => {
+                    if (confirm(`¿Estás seguro de que deseas eliminar la categoría "${cat.name}"? Los canales y videos no se borrarán.`)) {
+                        try {
+                            const delResp = await apiFetch(`/api/v1/categories/${cat.id}`, { method: "DELETE" });
+                            if (delResp.ok) {
+                                loadManageCategories();
+                                loadCategories(); // Refrescar el sidebar
+                            }
+                        } catch (err) {
+                            console.error("Error al eliminar categoría:", err);
+                        }
+                    }
+                });
+
+                listContainer.appendChild(item);
+            });
+        }
+    } catch (error) {
+        console.error("Error cargando gestor de categorías:", error);
+        listContainer.innerHTML = '<div class="loading-placeholder-nav">Error de conexión.</div>';
+    }
+}
+
+async function moveCategory(categories, fromIdx, toIdx) {
+    // Reordenar localmente
+    const element = categories.splice(fromIdx, 1)[0];
+    categories.splice(toIdx, 0, element);
+
+    // Mapear los IDs en el nuevo orden
+    const categoryIds = categories.map(c => c.id);
+
+    try {
+        const response = await apiFetch("/api/v1/categories/reorder", {
+            method: "PUT",
+            body: { categoryIds }
+        });
+
+        if (response.ok) {
+            loadManageCategories();
+            loadCategories(); // Refrescar el sidebar en el orden correcto
+        }
+    } catch (error) {
+        console.error("Error al reordenar categorías:", error);
     }
 }
 
