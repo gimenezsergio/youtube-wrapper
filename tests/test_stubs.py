@@ -11,6 +11,10 @@ def test_auth_status_stub(client):
 
 def test_categories_stub(client):
     """Prueba que el endpoint stub /api/v1/categories retorne las categorías mock de Fase 0."""
+    with client.session_transaction() as sess:
+        sess["authenticated"] = True
+        sess["email"] = "test_owner@gmail.com"
+
     response = client.get("/api/v1/categories")
     assert response.status_code == 200
     data = json.loads(response.data)
