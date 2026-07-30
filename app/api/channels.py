@@ -248,17 +248,30 @@ def update_channel_categories(channel_id):
 
 @channels_bp.route("/channels/sync", methods=["POST"])
 def sync_channels():
-    """Sincronizar suscripciones desde la API de YouTube."""
+    """Sincronizar suscripciones y videos desde la API de YouTube."""
     from app.services.subscription_service import SubscriptionService
+    from app.services.video_service import VideoService
     db = get_db()
     try:
-        service = SubscriptionService()
-        result = service.sync_subscriptions(db)
+        sub_service = SubscriptionService()
+        sub_result = sub_service.sync_subscriptions(db)
+
+        video_service = VideoService()
+        video_result = video_service.sync_videos(db)
+
+        result = {
+            "created": sub_result["created"],
+            "updated": sub_result["updated"],
+            "unsubscribed": sub_result["unsubscribed"],
+            "videos_created": video_result["created"],
+            "videos_updated": video_result["updated"],
+            "processed_channels": video_result["processed_channels"]
+        }
         return jsonify(result), 200
     except Exception as e:
         return jsonify({
             "error": {
                 "code": "SYNC_FAILED",
-                "message": f"Fallo al sincronizar suscripciones: {e}"
+                "message": f"Fallo al sincronizar suscripciones y videos: {e}"
             }
         }), 500

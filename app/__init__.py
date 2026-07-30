@@ -80,21 +80,27 @@ def create_app(config_name=None):
     from app.api.categories import categories_bp
     from app.api.channels import channels_bp
     from app.api.health import health_bp
+    from app.api.videos import videos_bp
     from app.auth.routes import auth_bp
 
     # Registramos con el prefijo /api/v1 como especifica openapi.yaml
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(categories_bp, url_prefix="/api/v1")
     app.register_blueprint(channels_bp, url_prefix="/api/v1")
+    app.register_blueprint(videos_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1")
 
     # Registrar middlewares/before_request hooks
     app.before_request(csrf_protect)
     app.before_request(check_auth)
 
-    # Ruta base / que sirve el frontend
+    # Ruta base / que sirve el frontend y soporta page reloads en rutas SPA
     @app.route("/")
-    def index():
+    @app.route("/category/<int:category_id>")
+    @app.route("/channels")
+    @app.route("/discoveries")
+    @app.route("/settings")
+    def index(category_id=None):
         from flask import render_template
         return render_template("base.html")
 
