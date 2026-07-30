@@ -4,9 +4,12 @@ let csrfToken = null;
 let activeFormKeywords = []; // Array temporal para las keywords en el formulario
 let currentCategories = []; // Array con el listado actual de categorías cargadas
 
-// Variables de estado de paginación y filtros para canales
+// Variables de estado de paginación y filtros para canales y videos
 let channelsNextCursor = null;
 let channelsSearchTimeout = null;
+
+let videosNextCursor = null;
+let videosSearchTimeout = null;
 
 document.addEventListener("DOMContentLoaded", () => {
     initApp();
@@ -18,7 +21,7 @@ function initApp() {
     // Configurar menú móvil
     setupMobileMenu();
     
-    // Configurar enrutador y clicks SPA (Fase 3)
+    // Configurar enrutador y clicks SPA (Fase 3/5)
     setupSPARouting();
     
     // Verificar estado de autenticación inicial
@@ -191,13 +194,6 @@ async function loadCategories() {
                 
                 categoriesList.appendChild(item);
             });
-            
-            // Si la URL ya tiene una categoría seleccionada en la query string, activarla
-            const urlParams = new URLSearchParams(window.location.search);
-            const activeCatId = urlParams.get("category");
-            if (activeCatId) {
-                selectCategoryInSidebar(parseInt(activeCatId));
-            }
         } else {
             categoriesList.innerHTML = '<div class="loading-placeholder-nav">Error al cargar</div>';
         }
@@ -208,44 +204,27 @@ async function loadCategories() {
 }
 
 function selectCategoryInSidebar(categoryId) {
-    // Quitar active de todas
-    document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
-    
-    // Añadir active a la seleccionada
-    const activeItem = document.querySelector(`.sidebar-nav .nav-item[data-category-id="${categoryId}"]`);
-    if (activeItem) {
-        activeItem.classList.add("active");
-    }
-    
-    // Actualizar la URL de manera SPA (Fase 2)
-    const url = new URL(window.location.href);
-    url.searchParams.set("category", categoryId);
-    window.history.pushState({}, "", url.toString());
-    
-    // Cargar el feed de esa categoría (Se implementará en Fase 5/8/9, ahora solo dejamos logueado)
-    console.log(`Navegando a la categoría ID: ${categoryId}`);
+    // Navegar de forma SPA usando la nueva ruta path-based
+    navigateToRoute(`/category/${categoryId}`);
 }
 
-/* --- Enrutador SPA de Navegación (Fase 3) --- */
+/* --- Enrutador SPA de Navegación (Fase 3/5) --- */
 
 function setupSPARouting() {
-    // Interceptar clicks de barra lateral
-    const navChannels = document.getElementById("nav-channels");
-    const navHome = document.getElementById("nav-home");
-
-    if (navChannels) {
-        navChannels.addEventListener("click", (e) => {
-            e.preventDefault();
-            navigateToRoute("/channels");
-        });
-    }
-
-    if (navHome) {
-        navHome.addEventListener("click", (e) => {
-            e.preventDefault();
-            navigateToRoute("/");
-        });
-    }
+    // Interceptar todos los clicks de enlaces locales para navegación SPA
+    document.addEventListener("click", (e) => {
+        const link = e.target.closest("a");
+        if (link && link.href) {
+            const url = new URL(link.href);
+            // Solo interceptar si es el mismo origen y no es una llamada a la API o logout
+            if (url.origin === window.location.origin && 
+                !url.pathname.startsWith("/api/") && 
+                url.pathname !== "/auth/logout") {
+                e.preventDefault();
+                navigateToRoute(url.pathname + url.search);
+            }
+        }
+    });
 
     // Escuchar el evento popstate para cuando el usuario retroceda/avance en el historial del navegador
     window.addEventListener("popstate", () => {
@@ -263,11 +242,31 @@ function handleCurrentRoute() {
     
     // Resetear menú activo
     document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
+    document.querySelectorAll("#nav-settings, #nav-discoveries").forEach(el => el.classList.remove("active"));
 
-    if (path === "/channels") {
+    // Comprobar si coincide con /category/<id>
+    const catMatch = path.match(/^\/category\/(\d+)/);
+
+    if (catMatch) {
+        const categoryId = parseInt(catMatch[1]);
+        
+        // Activar nav item correspondiente en sidebar
+        const activeItem = document.querySelector(`.sidebar-nav .nav-item[data-category-id="${categoryId}"]`);
+        if (activeItem) activeItem.classList.add("active");
+        
+        renderCategoryFeedView(categoryId);
+    } else if (path === "/channels") {
         const navChannels = document.getElementById("nav-channels");
         if (navChannels) navChannels.classList.add("active");
         renderChannelsView();
+    } else if (path === "/settings") {
+        const navSettings = document.getElementById("nav-settings");
+        if (navSettings) navSettings.classList.add("active");
+        renderSettingsView();
+    } else if (path === "/discoveries") {
+        const navDiscoveries = document.getElementById("nav-discoveries");
+        if (navDiscoveries) navDiscoveries.classList.add("active");
+        renderDiscoveriesView();
     } else if (path === "/") {
         const navHome = document.getElementById("nav-home");
         if (navHome) navHome.classList.add("active");
@@ -276,25 +275,473 @@ function handleCurrentRoute() {
 }
 
 function renderHomeView() {
+    renderCategoryFeedView(null);
+}
+
+function renderSettingsView() {
     const viewContainer = document.getElementById("view-container");
     if (!viewContainer) return;
-    
+
+    const email = document.getElementById("user-email")?.textContent || "Conectado";
+
     viewContainer.innerHTML = `
-        <section class="welcome-screen">
-            <div class="hero-card">
-                <h2 class="hero-title">Recupera el control de tu feed</h2>
-                <p class="hero-description">Organiza tus suscripciones a tu manera y descubre contenido nuevo guiado por tus propios términos, sin algoritmos persuasivos.</p>
-                <div class="hero-actions">
-                    <a href="/channels" id="btn-hero-channels" class="btn-primary">Gestionar Canales</a>
+        <div class="channels-view">
+            <div class="channels-header">
+                <h2 class="channels-title">Ajustes</h2>
+            </div>
+            
+            <div class="category-toolbar" style="margin-bottom: 20px;">
+                <p class="category-desc">Gestiona la conexión de tu cuenta y los diagnósticos del sistema.</p>
+            </div>
+            
+            <div class="channels-grid" style="display: flex; flex-direction: column; gap: 20px;">
+                <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
+                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Conexión Google OAuth 2.0</h3>
+                    <p class="form-instruction" style="margin-bottom: 15px;">Sesión activa con el correo de propietario:</p>
+                    <div style="font-weight: bold; margin-bottom: 20px; color: #a78bfa;">${escapeHtml(email)}</div>
+                    
+                    <div style="display: flex; gap: 10px;">
+                        <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
+                        <button id="btn-settings-logout" class="btn-secondary" style="border-color: #ef4444; color: #ef4444;">Cerrar Sesión</button>
+                    </div>
+                </div>
+                
+                <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
+                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Diagnóstico del Sistema</h3>
+                    <p class="form-instruction">Estado actual de la base de datos y worker de sincronización.</p>
+                    
+                    <ul style="list-style: none; padding: 0; margin: 15px 0 0 0; display: flex; flex-direction: column; gap: 10px;">
+                        <li style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                            <span>Base de datos SQLite:</span>
+                            <span style="color: #10b981; font-weight: bold;">🟢 Activo (WAL enabled)</span>
+                        </li>
+                        <li style="display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">
+                            <span>Protección CSRF:</span>
+                            <span style="color: #10b981; font-weight: bold;">🟢 Activo (X-CSRF-Token)</span>
+                        </li>
+                        <li style="display: flex; justify-content: space-between;">
+                            <span>Worker Daemon:</span>
+                            <span style="color: #a78bfa;">Disponible en segundo plano</span>
+                        </li>
+                    </ul>
                 </div>
             </div>
-        </section>
+        </div>
     `;
-    
-    document.getElementById("btn-hero-channels")?.addEventListener("click", (e) => {
-        e.preventDefault();
-        navigateToRoute("/channels");
+
+    document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
+        triggerSubscriptionSync();
     });
+
+    document.getElementById("btn-settings-logout")?.addEventListener("click", async () => {
+        if (confirm("¿Estás seguro de que deseas cerrar sesión?")) {
+            try {
+                const resp = await apiFetch("/api/v1/auth/logout", { method: "POST" });
+                if (resp.status === 204) {
+                    window.location.reload();
+                }
+            } catch (err) {
+                console.error("Error al cerrar sesión:", err);
+            }
+        }
+    });
+}
+
+function renderDiscoveriesView() {
+    const viewContainer = document.getElementById("view-container");
+    if (!viewContainer) return;
+
+    viewContainer.innerHTML = `
+        <div class="channels-view">
+            <div class="channels-header">
+                <h2 class="channels-title">Descubrimiento</h2>
+            </div>
+            
+            <div class="category-toolbar" style="margin-bottom: 20px;">
+                <p class="category-desc">Encuentra contenido recomendado según tus preferencias de filtrado y categorías.</p>
+            </div>
+            
+            <div style="background: rgba(167, 139, 250, 0.05); border: 1px dashed rgba(167, 139, 250, 0.3); border-radius: 12px; padding: 40px 20px; text-align: center; max-width: 600px; margin: 40px auto;">
+                <div style="font-size: 3rem; margin-bottom: 15px;">✨</div>
+                <h3 style="color: #fff; margin-top: 0; font-size: 1.25rem;">Clasificación y sugerencias automáticas</h3>
+                <p class="form-instruction" style="line-height: 1.6; margin-bottom: 0;">
+                    El motor de descubrimiento y sugerencias con IA está planeado para la siguiente etapa de desarrollo (Fase 8). 
+                    Las palabras clave configuradas en tus categorías y los canales que marques como seguidos serán utilizados 
+                    para evaluar y traerte videos coincidentes recomendados.
+                </p>
+            </div>
+        </div>
+    `;
+}
+
+/* --- Vista de Feed de Categorías (Fase 5) --- */
+
+async function renderCategoryFeedView(categoryId) {
+    const viewContainer = document.getElementById("view-container");
+    if (!viewContainer) return;
+
+    // Obtener detalles de la categoría desde caché local o de API
+    let category = null;
+    if (categoryId) {
+        category = currentCategories.find(c => c.id === categoryId);
+        if (!category) {
+            try {
+                const resp = await apiFetch(`/api/v1/categories/${categoryId}`);
+                if (resp.ok) {
+                    category = await resp.json();
+                }
+            } catch (err) {
+                console.error("Error al obtener categoría actual:", err);
+            }
+        }
+    }
+
+    const categoryName = category ? category.name : "Todos los Feeds";
+    const categoryDesc = category ? (category.description || "Sin descripción") : "Feed unificado de todos tus canales seguidos y descubrimientos.";
+
+    // Leer filtros iniciales desde la URL (query string)
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialView = urlParams.get("view") || "feed";
+    const initialWatched = urlParams.get("watched") || "false"; // Por defecto no vistos para priorizar pendientes
+    const initialOrigin = urlParams.get("origin") || "all";
+    const initialQuery = urlParams.get("query") || "";
+
+    viewContainer.innerHTML = `
+        <div class="category-view">
+            <div class="category-header">
+                <div class="category-title-area">
+                    <h2 class="category-title">${escapeHtml(categoryName)}</h2>
+                    <p class="category-desc">${escapeHtml(categoryDesc)}</p>
+                </div>
+                <div class="view-toggle-buttons">
+                    <button id="btn-view-feed" class="btn-toggle ${initialView === "feed" ? "active" : ""}">Feed</button>
+                    <button id="btn-view-channels" class="btn-toggle ${initialView === "channels" ? "active" : ""}">Por canal</button>
+                </div>
+            </div>
+            
+            <div class="category-toolbar">
+                <div class="toolbar-search">
+                    <span class="search-icon-inside">🔍</span>
+                    <input type="text" id="video-search-input" placeholder="Buscar videos..." value="${escapeHtml(initialQuery)}">
+                </div>
+                <div class="toolbar-filters">
+                    <select id="select-filter-watched" class="select-filter">
+                        <option value="all" ${initialWatched === "all" ? "selected" : ""}>Todos los videos</option>
+                        <option value="false" ${initialWatched === "false" ? "selected" : ""}>No vistos</option>
+                        <option value="true" ${initialWatched === "true" ? "selected" : ""}>Vistos</option>
+                    </select>
+                    
+                    <select id="select-filter-origin" class="select-filter">
+                        <option value="all" ${initialOrigin === "all" ? "selected" : ""}>Procedencia: Todas</option>
+                        <option value="followed" ${initialOrigin === "followed" ? "selected" : ""}>Solo mis canales</option>
+                        <option value="discovery" ${initialOrigin === "discovery" ? "selected" : ""}>Solo descubrimientos</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div id="videos-container" class="videos-container">
+                <!-- Se cargará la grilla de feed o lista agrupada por canal -->
+            </div>
+            
+            <div id="videos-pagination" class="pagination-container hidden">
+                <button id="btn-videos-load-more" class="btn-secondary">Cargar más</button>
+            </div>
+        </div>
+    `;
+
+    // Adjuntar listeners de filtros
+    const btnFeed = document.getElementById("btn-view-feed");
+    const btnChannels = document.getElementById("btn-view-channels");
+    const selectWatched = document.getElementById("select-filter-watched");
+    const selectOrigin = document.getElementById("select-filter-origin");
+    const searchInput = document.getElementById("video-search-input");
+    const btnLoadMore = document.getElementById("btn-videos-load-more");
+
+    const updateFiltersAndReload = () => {
+        const view = btnFeed.classList.contains("active") ? "feed" : "channels";
+        const watched = selectWatched.value;
+        const origin = selectOrigin.value;
+        const query = searchInput.value.trim();
+
+        // Actualizar URL sin recargar
+        const url = new URL(window.location.href);
+        url.searchParams.set("view", view);
+        url.searchParams.set("watched", watched);
+        url.searchParams.set("origin", origin);
+        if (query) {
+            url.searchParams.set("query", query);
+        } else {
+            url.searchParams.delete("query");
+        }
+        window.history.replaceState({}, "", url.toString());
+
+        loadCategoryVideos(categoryId, true);
+    };
+
+    btnFeed.addEventListener("click", () => {
+        btnFeed.classList.add("active");
+        btnChannels.classList.remove("active");
+        updateFiltersAndReload();
+    });
+
+    btnChannels.addEventListener("click", () => {
+        btnChannels.classList.add("active");
+        btnFeed.classList.remove("active");
+        updateFiltersAndReload();
+    });
+
+    selectWatched.addEventListener("change", updateFiltersAndReload);
+    selectOrigin.addEventListener("change", updateFiltersAndReload);
+
+    searchInput.addEventListener("input", () => {
+        clearTimeout(videosSearchTimeout);
+        videosSearchTimeout = setTimeout(() => {
+            updateFiltersAndReload();
+        }, 300);
+    });
+
+    btnLoadMore.addEventListener("click", () => {
+        if (videosNextCursor) {
+            loadCategoryVideos(categoryId, false, videosNextCursor);
+        }
+    });
+
+    // Cargar videos iniciales
+    loadCategoryVideos(categoryId, true);
+}
+
+async function loadCategoryVideos(categoryId, reset = true, cursor = "") {
+    const container = document.getElementById("videos-container");
+    const pagination = document.getElementById("videos-pagination");
+    if (!container) return;
+
+    if (reset) {
+        container.innerHTML = '<div class="loading-placeholder-nav">Cargando videos...</div>';
+        videosNextCursor = null;
+    }
+
+    const view = document.getElementById("btn-view-feed")?.classList.contains("active") ? "feed" : "channels";
+    const watched = document.getElementById("select-filter-watched")?.value || "false";
+    const origin = document.getElementById("select-filter-origin")?.value || "all";
+    const query = document.getElementById("video-search-input")?.value.trim() || "";
+
+    let url = `/api/v1/videos?limit=24&view=${view}&watched=${watched}&origin=${origin}`;
+    if (categoryId) {
+        url += `&categoryId=${categoryId}`;
+    }
+    if (query) url += `&query=${encodeURIComponent(query)}`;
+    if (cursor) url += `&cursor=${cursor}`;
+
+    try {
+        const response = await apiFetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            const items = data.items || [];
+            videosNextCursor = data.nextCursor;
+
+            if (reset) {
+                container.innerHTML = "";
+            }
+
+            if (items.length === 0 && reset) {
+                container.innerHTML = '<div class="loading-placeholder-nav">No hay videos recientes. Prueba agregando canales a esta categoría o sincronizando suscripciones.</div>';
+                pagination.classList.add("hidden");
+                return;
+            }
+
+            if (view === "feed") {
+                renderFeedView(container, items);
+            } else {
+                renderChannelsViewGrouped(container, items);
+            }
+
+            // Mostrar/ocultar botón de carga más
+            if (videosNextCursor) {
+                pagination.classList.remove("hidden");
+            } else {
+                pagination.classList.add("hidden");
+            }
+        } else {
+            if (reset) {
+                container.innerHTML = '<div class="loading-placeholder-nav">Error al consultar los videos.</div>';
+            }
+        }
+    } catch (error) {
+        console.error("Error al cargar videos:", error);
+        if (reset) {
+            container.innerHTML = '<div class="loading-placeholder-nav">Error de conexión al cargar videos.</div>';
+        }
+    }
+}
+
+function renderFeedView(container, videos) {
+    // Si es un reset, inicializar grilla
+    let grid = container.querySelector(".videos-feed-grid");
+    if (!grid) {
+        grid = document.createElement("div");
+        grid.className = "videos-feed-grid";
+        container.appendChild(grid);
+    }
+
+    videos.forEach(video => {
+        const card = createVideoCard(video);
+        grid.appendChild(card);
+    });
+}
+
+function renderChannelsViewGrouped(container, groups) {
+    let listContainer = container.querySelector(".channels-feed-list");
+    if (!listContainer) {
+        listContainer = document.createElement("div");
+        listContainer.className = "channels-feed-list";
+        container.appendChild(listContainer);
+    }
+
+    groups.forEach(group => {
+        const groupEl = document.createElement("div");
+        groupEl.className = "channel-video-group-box";
+
+        const channel = group.channel;
+        const videos = group.videos || [];
+
+        groupEl.innerHTML = `
+            <div class="channel-group-header-row">
+                <img src="${channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(channel.title)}">
+                <h3 class="channel-group-title-lbl">${escapeHtml(channel.title)}</h3>
+            </div>
+            <div class="channel-group-videos-grid">
+                <!-- Videos cargados -->
+            </div>
+        `;
+
+        const vGrid = groupEl.querySelector(".channel-group-videos-grid");
+        if (videos.length === 0) {
+            vGrid.innerHTML = '<div class="loading-placeholder-nav">Sin videos que coincidan con los filtros.</div>';
+        } else {
+            videos.forEach(video => {
+                const card = createVideoCard(video);
+                vGrid.appendChild(card);
+            });
+        }
+
+        listContainer.appendChild(groupEl);
+    });
+}
+
+function createVideoCard(video) {
+    const card = document.createElement("div");
+    card.className = `video-card ${video.watched ? "watched-video" : ""}`;
+    card.setAttribute("data-video-id", video.id);
+
+    const formattedDuration = formatDuration(video.durationSeconds);
+    const durationTag = formattedDuration ? `<span class="video-duration-tag">${formattedDuration}</span>` : "";
+
+    const cleanDate = video.publishedAt ? new Date(video.publishedAt).toLocaleDateString() : "";
+
+    // Insignias
+    let badgesHtml = "";
+    if (video.origin === "discovery") {
+        badgesHtml = '<span class="badge-video-origin-discovery">Descubrimiento</span>';
+    }
+
+    card.innerHTML = `
+        <div class="video-thumb-wrapper">
+            <img src="${video.thumbnailUrl || ''}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
+            ${durationTag}
+        </div>
+        <div class="video-info-section">
+            <img src="${video.channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
+            <div class="video-details-text">
+                <a class="video-card-title-link">${escapeHtml(video.title)}</a>
+                <div class="video-card-meta-row">
+                    <span class="video-channel-name-lbl">${escapeHtml(video.channel.title)}</span>
+                    <span class="video-date-lbl">${cleanDate}</span>
+                </div>
+                <div class="video-badges-row">${badgesHtml}</div>
+            </div>
+            <div class="video-actions-sidebar">
+                <button class="btn-toggle-watch ${video.watched ? "is-watched" : ""}" title="${video.watched ? "Marcar como no visto" : "Marcar como visto"}">
+                    ${video.watched ? "👁️" : "✓"}
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Click en la miniatura o en el título para abrir el video en YouTube y registrar
+    const openAction = async (e) => {
+        e.preventDefault();
+        try {
+            const resp = await apiFetch(`/api/v1/videos/${video.id}/open`, { method: "POST" });
+            if (resp.ok) {
+                const data = await resp.json();
+                
+                // Marcar como visto localmente al instante
+                card.classList.add("watched-video");
+                const btnWatch = card.querySelector(".btn-toggle-watch");
+                if (btnWatch) {
+                    btnWatch.classList.add("is-watched");
+                    btnWatch.textContent = "👁️";
+                    btnWatch.title = "Marcar como no visto";
+                }
+                
+                window.open(data.url, "_blank");
+            }
+        } catch (error) {
+            console.error("Error al abrir video:", error);
+        }
+    };
+
+    card.querySelector(".video-thumb-wrapper").addEventListener("click", openAction);
+    card.querySelector(".video-card-title-link").addEventListener("click", openAction);
+
+    // Botón de visto / no visto manual
+    card.querySelector(".btn-toggle-watch").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const currentlyWatched = card.classList.contains("watched-video");
+        const newWatchedState = !currentlyWatched;
+
+        try {
+            const resp = await apiFetch(`/api/v1/videos/${video.id}/watched`, {
+                method: "PUT",
+                body: { watched: newWatchedState }
+            });
+
+            if (resp.ok) {
+                const btnWatch = card.querySelector(".btn-toggle-watch");
+                if (newWatchedState) {
+                    card.classList.add("watched-video");
+                    btnWatch.classList.add("is-watched");
+                    btnWatch.textContent = "👁️";
+                    btnWatch.title = "Marcar como no visto";
+                } else {
+                    card.classList.remove("watched-video");
+                    btnWatch.classList.remove("is-watched");
+                    btnWatch.textContent = "✓";
+                    btnWatch.title = "Marcar como visto";
+                }
+            }
+        } catch (error) {
+            console.error("Error al alternar estado visto manual:", error);
+        }
+    });
+
+    return card;
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return "";
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    
+    let ret = "";
+    if (hrs > 0) {
+        ret += `${hrs}:${mins.toString().padStart(2, "0")}:`;
+    } else {
+        ret += `${mins}:`;
+    }
+    ret += secs.toString().padStart(2, "0");
+    return ret;
 }
 
 /* --- Vista de Gestión de Canales (Fase 3) --- */
@@ -493,7 +940,7 @@ function triggerSubscriptionSync() {
             <div class="sync-card">
                 <div class="spinner"></div>
                 <h3 class="sync-title">Sincronizando con YouTube</h3>
-                <p class="sync-subtitle">Esto puede demorar unos segundos. Importando suscripciones y metadatos de canales...</p>
+                <p class="sync-subtitle">Esto puede demorar unos segundos. Importando suscripciones, canales y videos recientes...</p>
             </div>
         `;
         document.body.appendChild(syncOverlay);
@@ -510,8 +957,10 @@ function triggerSubscriptionSync() {
         })
         .then(result => {
             syncOverlay.classList.add("hidden");
-            alert(`Sincronización completa:\n- Nuevos canales importados: ${result.created}\n- Canales actualizados: ${result.updated}\n- Canales desuscritos: ${result.unsubscribed}`);
-            loadChannelsList(true);
+            alert(`Sincronización completa:\n- Suscripciones creadas: ${result.created}\n- Suscripciones actualizadas: ${result.updated}\n- Videos nuevos importados: ${result.videos_created}\n- Videos actualizados: ${result.videos_updated}\n- Canales procesados: ${result.processed_channels}`);
+            
+            // Recargar la vista actual para reflejar los nuevos videos/canales
+            handleCurrentRoute();
         })
         .catch(error => {
             console.error("Error en sincronización:", error);
@@ -724,7 +1173,6 @@ function setupCategoryManager() {
     });
 }
 
-// (Las funciones auxiliares de Categorías permanecen igual)
 function showCategoryForm(category = null) {
     const listView = document.getElementById("categories-list-view");
     const form = document.getElementById("category-form");
@@ -890,47 +1338,9 @@ function setupRefreshButton() {
     const btnRefresh = document.getElementById("btn-refresh");
     if (btnRefresh) {
         btnRefresh.addEventListener("click", () => {
-            triggerRefreshRun();
+            triggerSubscriptionSync();
         });
     }
-}
-
-async function triggerRefreshRun() {
-    const overlay = document.getElementById("refresh-overlay");
-    const progressBar = document.getElementById("refresh-progress-bar");
-    const stageEl = document.getElementById("refresh-stage");
-    
-    if (!overlay) return;
-    
-    overlay.classList.remove("hidden");
-    if (progressBar) progressBar.style.width = "0%";
-    if (stageEl) stageEl.textContent = "Iniciando actualización...";
-    
-    // Simular un progreso en Fase 0
-    let progress = 0;
-    const stages = [
-        "Importando suscripciones de YouTube...",
-        "Analizando metadatos de canales...",
-        "Buscando videos recientes...",
-        "Clasificando automáticamente...",
-        "Generando candidatos de descubrimiento...",
-        "Finalizando actualización..."
-    ];
-    
-    const interval = setInterval(() => {
-        progress += 16.6;
-        const stageIndex = Math.min(Math.floor(progress / 16.6), stages.length - 1);
-        
-        if (progressBar) progressBar.style.width = `${Math.min(progress, 100)}%`;
-        if (stageEl) stageEl.textContent = stages[stageIndex];
-        
-        if (progress >= 100) {
-            clearInterval(interval);
-            setTimeout(() => {
-                overlay.classList.add("hidden");
-            }, 800);
-        }
-    }, 500);
 }
 
 function escapeHtml(str) {
