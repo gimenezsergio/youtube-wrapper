@@ -44,7 +44,7 @@ def _serialize_video(row, discovery_contexts=None, category_ids=None):
     }
 
 
-def _build_where_clause(category_id, channel_ids_str, watched, origin):
+def _build_where_clause(category_id, channel_ids_str, watched, origin, query):
     """Construye las cláusulas WHERE y los parámetros para la consulta de videos."""
     where_clauses = ["c.is_blocked = 0"]
     params = []
@@ -94,6 +94,11 @@ def _build_where_clause(category_id, channel_ids_str, watched, origin):
             (v.id IN (SELECT video_id FROM discovery_candidates)
              AND NOT (c.is_subscribed = 1 OR c.is_locally_followed = 1))
         """)
+
+    # Filtro por búsqueda de texto (query)
+    if query:
+        where_clauses.append("(v.title LIKE ? OR v.description LIKE ? OR c.title LIKE ?)")
+        params.extend([f"%{query}%", f"%{query}%", f"%{query}%"])
 
     return " AND ".join(where_clauses), params, None
 
@@ -349,6 +354,7 @@ def list_videos():
     view = request.args.get("view", default="feed", type=str)
     cursor = request.args.get("cursor", type=str)
     limit = min(request.args.get("limit", default=30, type=int), 100)
+    query = request.args.get("query", type=str)
 
     # Validar parámetros
     if watched not in ["all", "true", "false"]:
@@ -374,7 +380,7 @@ def list_videos():
         }), 400
 
     # Construir cláusula WHERE
-    where_sql, params, err = _build_where_clause(category_id, channel_ids_str, watched, origin)
+    where_sql, params, err = _build_where_clause(category_id, channel_ids_str, watched, origin, query)
     if err:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": err[0]}}), err[1]
 

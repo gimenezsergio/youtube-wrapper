@@ -247,6 +247,37 @@ def test_video_user_actions(auth_client, seed_data, app):
     assert len(data_list_2["items"]) == 0
 
 
+def test_videos_query_search(auth_client, seed_data, app):
+    """Prueba que los videos puedan ser buscados/filtrados por título o canal."""
+    fake_gateway = FakeYouTubeGateway()
+    service = VideoService(gateway=fake_gateway)
+
+    with app.app_context():
+        conn = get_db_connection(app.config["DATABASE_PATH"])
+        service.sync_videos(conn)
+        conn.close()
+
+    # Buscar por coincidencia exacta en título ("Video 1")
+    resp_v1 = auth_client.get("/api/v1/videos?view=feed&query=Video 1")
+    assert resp_v1.status_code == 200
+    data_v1 = json.loads(resp_v1.data)
+    assert len(data_v1["items"]) == 1
+    assert data_v1["items"][0]["title"] == "Video 1"
+
+    # Buscar por canal ("Canal A" -> debe traer Video 1 y Video 2, pero no Video 3)
+    resp_ch = auth_client.get("/api/v1/videos?view=feed&query=Canal A")
+    assert resp_ch.status_code == 200
+    data_ch = json.loads(resp_ch.data)
+    assert len(data_ch["items"]) == 2
+    assert {v["youtubeVideoId"] for v in data_ch["items"]} == {"vid_1", "vid_2"}
+
+    # Buscar coincidencia inexistente
+    resp_none = auth_client.get("/api/v1/videos?view=feed&query=no_match_query")
+    assert resp_none.status_code == 200
+    data_none = json.loads(resp_none.data)
+    assert len(data_none["items"]) == 0
+
+
 def test_videos_performance(auth_client, seed_data, app):
     """Prueba de rendimiento con 500 canales y 20.000 videos sintéticos (RF-13)."""
     import time
