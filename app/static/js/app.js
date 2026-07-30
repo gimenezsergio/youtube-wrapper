@@ -1,5 +1,7 @@
 // YouTube Curator — Main Application Entry (ES Module)
 
+let csrfToken = null;
+
 document.addEventListener("DOMContentLoaded", () => {
     initApp();
 });
@@ -12,9 +14,6 @@ function initApp() {
     
     // Verificar estado de autenticación inicial
     checkAuthStatus();
-    
-    // Cargar categorías iniciales
-    loadCategories();
     
     // Configurar manejador del botón de actualización
     setupRefreshButton();
@@ -43,24 +42,99 @@ function setupMobileMenu() {
     }
 }
 
-async function checkAuthStatus() {
-    const userEmailEl = document.getElementById("user-email");
-    const userInfoEl = userEmailEl ? userEmailEl.parentElement : null;
+// Wrapper seguro para fetch que inyecta automáticamente el token CSRF para mutaciones
+export async function apiFetch(url, options = {}) {
+    if (!options.headers) {
+        options.headers = {};
+    }
     
+    const method = (options.method || "GET").toUpperCase();
+    if (["POST", "PUT", "PATCH", "DELETE"].includes(method) && csrfToken) {
+        options.headers["X-CSRF-Token"] = csrfToken;
+    }
+    
+    // Configurar cabeceras por defecto si es JSON
+    if (options.body && typeof options.body === "object" && !(options.body instanceof FormData)) {
+        options.body = JSON.stringify(options.body);
+        options.headers["Content-Type"] = "application/json";
+    }
+    
+    const response = await fetch(url, options);
+    
+    // Redirigir a login si la API retorna 401
+    if (response.status === 401) {
+        csrfToken = null;
+        showLoginScreen(true);
+    }
+    
+    return response;
+}
+
+async function checkAuthStatus() {
     try {
         const response = await fetch("/api/v1/auth/status");
         if (response.ok) {
             const data = await response.json();
             if (data.authenticated) {
-                if (userEmailEl) userEmailEl.textContent = data.email || "Conectado";
-                if (userInfoEl) userInfoEl.classList.add("online");
+                csrfToken = data.csrfToken;
+                showAppShell(data.email);
+                // Cargar categorías una vez autenticado
+                loadCategories();
             } else {
-                if (userEmailEl) userEmailEl.textContent = "Sin conexión";
-                if (userInfoEl) userInfoEl.classList.remove("online");
+                csrfToken = null;
+                showLoginScreen();
             }
+        } else {
+            showLoginScreen();
         }
     } catch (error) {
         console.error("Error al obtener estado de autenticación:", error);
+        showLoginScreen();
+        const loginErrorEl = document.getElementById("login-error");
+        if (loginErrorEl) {
+            loginErrorEl.textContent = "Error de conexión con el servidor.";
+            loginErrorEl.classList.remove("hidden");
+        }
+    }
+}
+
+function showAppShell(email) {
+    const appShell = document.getElementById("app-shell");
+    const loginScreen = document.getElementById("login-screen");
+    const userEmailEl = document.getElementById("user-email");
+    const userInfoEl = userEmailEl ? userEmailEl.parentElement : null;
+    
+    if (appShell) appShell.classList.remove("hidden");
+    if (loginScreen) loginScreen.classList.add("hidden");
+    
+    if (userEmailEl) userEmailEl.textContent = email || "Conectado";
+    if (userInfoEl) userInfoEl.classList.add("online");
+}
+
+function showLoginScreen(sessionExpired = false) {
+    const appShell = document.getElementById("app-shell");
+    const loginScreen = document.getElementById("login-screen");
+    const loginErrorEl = document.getElementById("login-error");
+    
+    if (appShell) appShell.classList.add("hidden");
+    if (loginScreen) loginScreen.classList.remove("hidden");
+    
+    // Comprobar si hay errores en los parámetros de la URL (OAuth callback errors)
+    const urlParams = new URLSearchParams(window.location.search);
+    const authError = urlParams.get("error");
+    
+    if (loginErrorEl) {
+        if (sessionExpired) {
+            loginErrorEl.textContent = "Tu sesión ha expirado. Por favor conéctate de nuevo.";
+            loginErrorEl.classList.remove("hidden");
+        } else if (authError) {
+            loginErrorEl.textContent = decodeURIComponent(authError);
+            loginErrorEl.classList.remove("hidden");
+            // Limpiar query params de la URL sin recargar la página
+            window.history.replaceState({}, document.title, "/");
+        } else {
+            loginErrorEl.classList.add("hidden");
+        }
     }
 }
 
@@ -69,7 +143,7 @@ async function loadCategories() {
     if (!categoriesList) return;
     
     try {
-        const response = await fetch("/api/v1/categories");
+        const response = await apiFetch("/api/v1/categories");
         if (response.ok) {
             const data = await response.json();
             categoriesList.innerHTML = "";
@@ -102,7 +176,6 @@ function setupRefreshButton() {
     const btnRefresh = document.getElementById("btn-refresh");
     if (btnRefresh) {
         btnRefresh.addEventListener("click", () => {
-            // En Fase 0 solo mostramos una simulación visual o llamamos al endpoint de refresh si existe
             triggerRefreshRun();
         });
     }

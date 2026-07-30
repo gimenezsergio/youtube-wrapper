@@ -107,6 +107,21 @@
         </main>
     </div>
 
+    <!-- Pantalla de Inicio de Sesión de Propietario (Fase 1) -->
+    <div id="login-screen" class="login-screen hidden">
+        <div class="login-card">
+            <div class="login-logo-container">
+                <div class="login-logo-icon">YT</div>
+            </div>
+            <h2 class="login-title">YT Curator</h2>
+            <p class="login-subtitle">Inicia sesión con tu cuenta de propietario para gestionar tu biblioteca sin algoritmos persuasivos.</p>
+            <div id="login-error" class="login-error hidden"></div>
+            <a href="/api/v1/auth/login" class="btn-primary btn-login">
+                <span class="google-icon">🔑</span> Conectarse con Google
+            </a>
+        </div>
+    </div>
+
     <!-- Modal para notificaciones o carga -->
     <div id="refresh-overlay" class="refresh-overlay hidden">
         <div class="refresh-card">
