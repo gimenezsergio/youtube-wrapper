@@ -334,7 +334,8 @@ function renderSettingsView() {
     });
 
     document.getElementById("btn-settings-logout")?.addEventListener("click", async () => {
-        if (confirm("¿Estás seguro de que deseas cerrar sesión?")) {
+        const confirmed = await showConfirmDialog("Cerrar Sesión", "¿Estás seguro de que deseas cerrar sesión?");
+        if (confirmed) {
             try {
                 const resp = await apiFetch("/api/v1/auth/logout", { method: "POST" });
                 if (resp.status === 204) {
@@ -957,7 +958,10 @@ function triggerSubscriptionSync() {
         })
         .then(result => {
             syncOverlay.classList.add("hidden");
-            alert(`Sincronización completa:\n- Suscripciones creadas: ${result.created}\n- Suscripciones actualizadas: ${result.updated}\n- Videos nuevos importados: ${result.videos_created}\n- Videos actualizados: ${result.videos_updated}\n- Canales procesados: ${result.processed_channels}`);
+            showAlertDialog(
+                "Sincronización Completa",
+                `Sincronización completa:\n- Suscripciones creadas: ${result.created}\n- Suscripciones actualizadas: ${result.updated}\n- Videos nuevos importados: ${result.videos_created}\n- Videos actualizados: ${result.videos_updated}\n- Canales procesados: ${result.processed_channels}`
+            );
             
             // Recargar la vista actual para reflejar los nuevos videos/canales
             handleCurrentRoute();
@@ -965,7 +969,10 @@ function triggerSubscriptionSync() {
         .catch(error => {
             console.error("Error en sincronización:", error);
             syncOverlay.classList.add("hidden");
-            alert("Error al sincronizar con YouTube. Verifique que sus credenciales OAuth estén bien configuradas.");
+            showAlertDialog(
+                "Error de Sincronización",
+                "Error al sincronizar con YouTube. Verifique que sus credenciales OAuth estén bien configuradas."
+            );
         });
 }
 
@@ -1116,7 +1123,7 @@ function setupCategoryManager() {
 
         // Comprobar duplicado en la interfaz
         if (activeFormKeywords.some(k => k.term.toLowerCase() === term.toLowerCase())) {
-            alert("Este término ya está añadido.");
+            showAlertDialog("Término Duplicado", "Este término ya está añadido.");
             return;
         }
 
@@ -1289,7 +1296,11 @@ async function loadManageCategories() {
 
                 // Eliminar categoría
                 item.querySelector(".btn-delete").addEventListener("click", async () => {
-                    if (confirm(`¿Estás seguro de que deseas eliminar la categoría "${cat.name}"? Los canales y videos no se borrarán.`)) {
+                    const confirmed = await showConfirmDialog(
+                        "Eliminar Categoría",
+                        `¿Estás seguro de que deseas eliminar la categoría "${cat.name}"? Los canales y videos no se borrarán.`
+                    );
+                    if (confirmed) {
                         try {
                             const delResp = await apiFetch(`/api/v1/categories/${cat.id}`, { method: "DELETE" });
                             if (delResp.ok) {
@@ -1341,6 +1352,79 @@ function setupRefreshButton() {
             triggerSubscriptionSync();
         });
     }
+}
+
+function showAlertDialog(title, message) {
+    const dialogId = "custom-alert-dialog";
+    document.getElementById(dialogId)?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = dialogId;
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+        <div class="modal-card" style="max-width: 450px;">
+            <div class="modal-header">
+                <h3 class="modal-title">${escapeHtml(title)}</h3>
+                <button class="btn-close-modal" id="btn-close-alert">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${message.replace(/\n/g, "<br>")}</p>
+                <div style="display: flex; justify-content: flex-end;">
+                    <button class="btn-primary" id="btn-alert-ok">Aceptar</button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        overlay.classList.add("hidden");
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    document.getElementById("btn-close-alert").addEventListener("click", close);
+    document.getElementById("btn-alert-ok").addEventListener("click", close);
+}
+
+function showConfirmDialog(title, message) {
+    return new Promise((resolve) => {
+        const dialogId = "custom-confirm-dialog";
+        document.getElementById(dialogId)?.remove();
+
+        const overlay = document.createElement("div");
+        overlay.id = dialogId;
+        overlay.className = "modal-overlay";
+        overlay.innerHTML = `
+            <div class="modal-card" style="max-width: 450px;">
+                <div class="modal-header">
+                    <h3 class="modal-title">${escapeHtml(title)}</h3>
+                    <button class="btn-close-modal" id="btn-close-confirm">&times;</button>
+                </div>
+                <div class="modal-body" style="padding: 20px;">
+                    <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${escapeHtml(message)}</p>
+                    <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                        <button class="btn-secondary" id="btn-confirm-cancel">Cancelar</button>
+                        <button class="btn-primary" id="btn-confirm-ok">Confirmar</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+
+        const close = (result) => {
+            overlay.classList.add("hidden");
+            setTimeout(() => {
+                overlay.remove();
+                resolve(result);
+            }, 300);
+        };
+
+        document.getElementById("btn-close-confirm").addEventListener("click", () => close(false));
+        document.getElementById("btn-confirm-cancel").addEventListener("click", () => close(false));
+        document.getElementById("btn-confirm-ok").addEventListener("click", () => close(true));
+    });
 }
 
 function escapeHtml(str) {
