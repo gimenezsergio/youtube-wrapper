@@ -598,31 +598,65 @@ function renderChannelsViewGrouped(container, groups) {
         container.appendChild(listContainer);
     }
 
-    groups.forEach(group => {
+    groups.forEach((group, groupIdx) => {
         const groupEl = document.createElement("div");
-        groupEl.className = "channel-video-group-box";
+        // El primer canal viene expandido por defecto, los demás colapsados para mantener la vista compacta
+        groupEl.className = `channel-video-group-box ${groupIdx === 0 ? "" : "is-collapsed"}`;
 
         const channel = group.channel;
         const videos = group.videos || [];
 
         groupEl.innerHTML = `
             <div class="channel-group-header-row">
-                <img src="${channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(channel.title)}">
-                <h3 class="channel-group-title-lbl">${escapeHtml(channel.title)}</h3>
+                <div class="channel-group-header-left">
+                    <img src="${channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(channel.title)}">
+                    <h3 class="channel-group-title-lbl">${escapeHtml(channel.title)} <span style="font-weight: normal; font-size: 0.95rem; color: var(--text-secondary); margin-left: 6px;">(${videos.length} ${videos.length === 1 ? 'video' : 'videos'})</span></h3>
+                </div>
+                <div class="channel-group-arrow">▼</div>
             </div>
-            <div class="channel-group-videos-grid">
-                <!-- Videos cargados -->
+            <div class="channel-group-videos-container">
+                <div class="channel-group-videos-grid">
+                    <!-- Videos cargados -->
+                </div>
+                <div class="channel-group-footer"></div>
             </div>
         `;
 
+        // Alternar colapsado al hacer clic en la cabecera
+        const header = groupEl.querySelector(".channel-group-header-row");
+        header.addEventListener("click", () => {
+            groupEl.classList.toggle("is-collapsed");
+        });
+
         const vGrid = groupEl.querySelector(".channel-group-videos-grid");
+        const footer = groupEl.querySelector(".channel-group-footer");
+
         if (videos.length === 0) {
             vGrid.innerHTML = '<div class="loading-placeholder-nav">Sin videos que coincidan con los filtros.</div>';
         } else {
-            videos.forEach(video => {
+            videos.forEach((video, videoIdx) => {
                 const card = createVideoCard(video);
+                // Ocultar videos a partir del cuarto (índice 3 en adelante)
+                if (videoIdx >= 3) {
+                    card.classList.add("video-hidden");
+                }
                 vGrid.appendChild(card);
             });
+
+            // Si hay más de 3 videos, mostrar botón de "Ver más"
+            if (videos.length > 3) {
+                const btnShowMore = document.createElement("button");
+                btnShowMore.className = "btn-show-more-videos";
+                btnShowMore.textContent = `Ver más (+${videos.length - 3})`;
+                btnShowMore.addEventListener("click", (e) => {
+                    e.stopPropagation(); // Evitar propagar clics al acordeón
+                    groupEl.querySelectorAll(".video-card.video-hidden").forEach(card => {
+                        card.classList.remove("video-hidden");
+                    });
+                    btnShowMore.remove();
+                });
+                footer.appendChild(btnShowMore);
+            }
         }
 
         listContainer.appendChild(groupEl);
