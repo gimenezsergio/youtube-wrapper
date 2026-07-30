@@ -49,7 +49,7 @@ class TestingConfig(Config):
     """Configuración para pruebas."""
     TESTING = True
     DEBUG = True
-    DATABASE_PATH = os.environ.get("DATABASE_PATH", ":memory:")
+    DATABASE_PATH = ":memory:"
     # Clave de cifrado de prueba
     TOKEN_ENCRYPTION_KEY = "K3V3WVhFdmh3Skl2eFhDWTFzTkpxUWx6T0RJM05EUTU="
     OWNER_GOOGLE_EMAIL = "test_owner@gmail.com"
