@@ -597,10 +597,94 @@ function renderChannelsViewGrouped(container, groups) {
         listContainer.className = "channels-feed-list";
         container.appendChild(listContainer);
     }
+    listContainer.innerHTML = ""; // Limpiar contenido anterior
 
+    const path = window.location.pathname;
+    const catMatch = path.match(/^\/category\/(\d+)/);
+
+    if (catMatch) {
+        // Vista de categoría específica: Renderizar directamente la lista de canales sin agrupaciones adicionales
+        renderGroupsList(listContainer, groups);
+    } else {
+        // "Todos los Feeds": Agrupar canales bajo sus respectivas categorías
+        const categoryGroupsMap = {};
+
+        // Inicializar mapa con las categorías actuales
+        currentCategories.forEach(cat => {
+            categoryGroupsMap[cat.id] = {
+                category: cat,
+                groups: []
+            };
+        });
+
+        // Grupo para canales sin clasificar
+        const uncategorizedKey = "uncategorized";
+        categoryGroupsMap[uncategorizedKey] = {
+            category: { id: null, name: "Sin clasificar", description: "Canales que no han sido asignados a ninguna categoría." },
+            groups: []
+        };
+
+        // Distribuir canales
+        groups.forEach(group => {
+            const catIds = group.channel.categoryIds || [];
+            if (catIds.length === 0) {
+                categoryGroupsMap[uncategorizedKey].groups.push(group);
+            } else {
+                catIds.forEach(catId => {
+                    if (categoryGroupsMap[catId]) {
+                        // Empujamos una copia o referencia al grupo
+                        categoryGroupsMap[catId].groups.push(group);
+                    } else {
+                        categoryGroupsMap[uncategorizedKey].groups.push(group);
+                    }
+                });
+            }
+        });
+
+        // Determinar qué categorías tienen contenido
+        const categoriesToRender = [
+            ...currentCategories.map(c => c.id),
+            uncategorizedKey
+        ];
+
+        let hasAnyContent = false;
+
+        categoriesToRender.forEach(catKey => {
+            const catData = categoryGroupsMap[catKey];
+            if (!catData || catData.groups.length === 0) return;
+
+            hasAnyContent = true;
+
+            const sectionEl = document.createElement("div");
+            sectionEl.className = "category-section-group";
+            sectionEl.style.marginBottom = "40px";
+            
+            sectionEl.innerHTML = `
+                <div class="category-section-title-row" style="margin: 30px 0 15px 0; padding-bottom: 8px; border-bottom: 2px solid rgba(255,255,255,0.05); display: flex; align-items: center; gap: 10px;">
+                    <span style="font-size: 1.25rem;">📁</span>
+                    <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #a78bfa;">${escapeHtml(catData.category.name)}</h3>
+                    <span style="font-size: 0.8rem; color: var(--text-secondary); background: rgba(255,255,255,0.05); padding: 2px 10px; border-radius: 20px; font-weight: 500;">
+                        ${catData.groups.length} ${catData.groups.length === 1 ? 'canal' : 'canales'}
+                    </span>
+                </div>
+                <div class="category-section-channels-list"></div>
+            `;
+
+            const channelsListContainer = sectionEl.querySelector(".category-section-channels-list");
+            renderGroupsList(channelsListContainer, catData.groups);
+            listContainer.appendChild(sectionEl);
+        });
+
+        if (!hasAnyContent) {
+            listContainer.innerHTML = '<div class="loading-placeholder-nav">No hay videos ni canales que coincidan con los filtros.</div>';
+        }
+    }
+}
+
+function renderGroupsList(targetContainer, groups) {
     groups.forEach((group, groupIdx) => {
         const groupEl = document.createElement("div");
-        // El primer canal viene expandido por defecto, los demás colapsados para mantener la vista compacta
+        // El primer canal de la sección viene expandido, los demás colapsados para limpieza visual
         groupEl.className = `channel-video-group-box ${groupIdx === 0 ? "" : "is-collapsed"}`;
 
         const channel = group.channel;
@@ -659,7 +743,7 @@ function renderChannelsViewGrouped(container, groups) {
             }
         }
 
-        listContainer.appendChild(groupEl);
+        targetContainer.appendChild(groupEl);
     });
 }
 
