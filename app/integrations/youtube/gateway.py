@@ -133,11 +133,11 @@ class YouTubeGateway:
 
                 # Obtener thumbnail
                 thumbnails = snippet.get("thumbnails", {})
-                # Intentamos default, medium, high
+                # Priorizar la resolución más alta disponible
                 thumbnail_url = (
-                    thumbnails.get("default", {}).get("url") or
+                    thumbnails.get("high", {}).get("url") or
                     thumbnails.get("medium", {}).get("url") or
-                    thumbnails.get("high", {}).get("url")
+                    thumbnails.get("default", {}).get("url")
                 )
 
                 # Obtener playlist de uploads
@@ -157,3 +157,147 @@ class YouTubeGateway:
             f"(Consumo cuota: {len(batches)} unidades)"
         )
         return channels_details
+
+    def fetch_playlist_items(
+        self, access_token: str, playlist_id: str, limit: int = 50, page_token: str = None
+    ) -> dict:
+        """
+        Obtiene una página de elementos de una lista de reproducción (playlistItems).
+        Retorna un diccionario con 'items' y 'nextPageToken'.
+        """
+        url = "https://www.googleapis.com/youtube/v3/playlistItems"
+        params = {
+            "part": "snippet,contentDetails",
+            "playlistId": playlist_id,
+            "maxResults": min(limit, 50)
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        current_app.logger.info(f"Youtube API Call: playlistItems.list para playlist {playlist_id}")
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+
+        if response.status_code == 401:
+            raise PermissionError("Access token expirado.")
+        elif response.status_code != 200:
+            raise Exception(f"Error consultando items de playlist: {response.text}")
+
+        data = response.json()
+        items = []
+        for item in data.get("items", []):
+            snippet = item.get("snippet", {})
+            content_details = item.get("contentDetails", {})
+            video_id = content_details.get("videoId")
+            title = snippet.get("title", "")
+            description = snippet.get("description", "")
+            published_at = snippet.get("publishedAt", "")
+
+            # Obtener thumbnail
+            thumbnails = snippet.get("thumbnails", {})
+            # Priorizar la resolución más alta disponible (HD si está disponible)
+            thumbnail_url = (
+                thumbnails.get("maxres", {}).get("url") or
+                thumbnails.get("standard", {}).get("url") or
+                thumbnails.get("high", {}).get("url") or
+                thumbnails.get("medium", {}).get("url") or
+                thumbnails.get("default", {}).get("url")
+            )
+
+            if video_id:
+                items.append({
+                    "youtube_video_id": video_id,
+                    "title": title,
+                    "description": description,
+                    "published_at": published_at,
+                    "thumbnail_url": thumbnail_url
+                })
+
+        return {
+            "items": items,
+            "nextPageToken": data.get("nextPageToken")
+        }
+
+    def fetch_videos_details(self, access_token: str, video_ids: list[str]) -> list[dict]:
+        """
+        Obtiene detalles de una lista de videos en lotes de hasta 50.
+        Retorna lista de diccionarios con youtube_video_id, duration_seconds y content_type.
+        """
+        if not video_ids:
+            return []
+
+        url = "https://www.googleapis.com/youtube/v3/videos"
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        videos_details = []
+        batch_size = 50
+        batches = [video_ids[i:i + batch_size] for i in range(0, len(video_ids), batch_size)]
+
+        for batch in batches:
+            params = {
+                "part": "snippet,contentDetails",
+                "id": ",".join(batch)
+            }
+
+            current_app.logger.info(f"Youtube API Call: videos.list (Lote de {len(batch)} IDs)")
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+
+            if response.status_code == 401:
+                raise PermissionError("Access token expirado.")
+            elif response.status_code != 200:
+                raise Exception(f"Error consultando detalles de videos: {response.text}")
+
+            data = response.json()
+            for item in data.get("items", []):
+                video_id = item.get("id")
+                snippet = item.get("snippet", {})
+                content_details = item.get("contentDetails", {})
+
+                # Parsear duración ISO 8601 a segundos
+                duration_str = content_details.get("duration", "")
+                duration_seconds = self._parse_iso8601_duration(duration_str)
+
+                # Clasificar content_type
+                live_content = snippet.get("liveBroadcastContent", "none")
+                if live_content == "live":
+                    content_type = "live"
+                elif live_content == "upcoming":
+                    content_type = "upcoming"
+                elif live_content == "none":
+                    content_type = "video"
+                else:
+                    content_type = "unknown"
+
+                videos_details.append({
+                    "youtube_video_id": video_id,
+                    "duration_seconds": duration_seconds,
+                    "content_type": content_type
+                })
+
+        return videos_details
+
+    def _parse_iso8601_duration(self, duration_str: str) -> int:
+        """Parsea duración ISO 8601 a segundos."""
+        import re
+        if not duration_str:
+            return 0
+        pattern = re.compile(
+            r'P(?:(?P<days>\d+)D)?T?(?:(?P<hours>\d+)H)?(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?'
+        )
+        match = pattern.match(duration_str)
+        if not match:
+            return 0
+
+        parts = match.groupdict()
+        days = int(parts.get('days') or 0)
+        hours = int(parts.get('hours') or 0)
+        minutes = int(parts.get('minutes') or 0)
+        seconds = int(parts.get('seconds') or 0)
+
+        return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
