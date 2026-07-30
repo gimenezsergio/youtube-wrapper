@@ -78,12 +78,14 @@ def create_app(config_name=None):
 
     # Registrar Blueprints
     from app.api.categories import categories_bp
+    from app.api.channels import channels_bp
     from app.api.health import health_bp
     from app.auth.routes import auth_bp
 
     # Registramos con el prefijo /api/v1 como especifica openapi.yaml
     app.register_blueprint(health_bp, url_prefix="/api/v1")
     app.register_blueprint(categories_bp, url_prefix="/api/v1")
+    app.register_blueprint(channels_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1")
 
     # Registrar middlewares/before_request hooks
