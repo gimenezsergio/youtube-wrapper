@@ -29,6 +29,9 @@ function initApp() {
 
     // Configurar administrador de categorías (Fase 2)
     setupCategoryManager();
+
+    // Configurar clasificador manual de canales (Fase 4)
+    setupChannelClassifier();
 }
 
 function setupMobileMenu() {
@@ -435,9 +438,15 @@ async function loadChannelsList(reset = true, cursor = "") {
                     <p class="channel-card-desc">${escapeHtml(channel.description || "Sin descripción")}</p>
                     <div class="channel-card-categories">${categoriesHtml}</div>
                     <div class="channel-card-actions">
+                        <button class="btn-secondary btn-sm btn-classify">Categorías</button>
                         <button class="btn-secondary btn-sm btn-block-toggle">${channel.blocked ? "Desbloquear" : "Bloquear"}</button>
                     </div>
                 `;
+
+                // Configurar click en clasificar canal (Fase 4)
+                card.querySelector(".btn-classify").addEventListener("click", () => {
+                    openClassificationModal(channel);
+                });
 
                 // Configurar botón de bloqueo
                 card.querySelector(".btn-block-toggle").addEventListener("click", async () => {
@@ -509,6 +518,99 @@ function triggerSubscriptionSync() {
             syncOverlay.classList.add("hidden");
             alert("Error al sincronizar con YouTube. Verifique que sus credenciales OAuth estén bien configuradas.");
         });
+}
+
+/* --- Clasificador Manual de Canales (Fase 4) --- */
+
+function setupChannelClassifier() {
+    const modal = document.getElementById("channel-classification-modal");
+    const btnClose = document.getElementById("btn-close-classification-modal");
+    const btnCancel = document.getElementById("btn-cancel-classification");
+    const form = document.getElementById("channel-classification-form");
+
+    if (!modal) return;
+
+    const closeModal = () => {
+        modal.classList.add("hidden");
+        form.reset();
+    };
+
+    btnClose.addEventListener("click", closeModal);
+    btnCancel.addEventListener("click", closeModal);
+
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const channelId = document.getElementById("class-channel-id").value;
+        const errEl = document.getElementById("classification-form-error");
+
+        errEl.classList.add("hidden");
+        errEl.textContent = "";
+
+        // Obtener los IDs de las categorías seleccionadas
+        const checkboxes = document.querySelectorAll("#classification-categories-checkboxes input[type='checkbox']");
+        const categoryIds = Array.from(checkboxes)
+            .filter(cb => cb.checked)
+            .map(cb => parseInt(cb.value));
+
+        try {
+            const response = await apiFetch(`/api/v1/channels/${channelId}/categories`, {
+                method: "PUT",
+                body: { categoryIds }
+            });
+
+            if (response.ok) {
+                closeModal();
+                loadChannelsList(true); // Recargar grilla de canales
+                loadCategories();       // Actualizar conteos en barra lateral
+            } else {
+                const errData = await response.json();
+                errEl.textContent = errData.error?.message || "Fallo al guardar la clasificación.";
+                errEl.classList.remove("hidden");
+            }
+        } catch (error) {
+            console.error("Error en guardar clasificación:", error);
+            errEl.textContent = "Error de conexión con el servidor.";
+            errEl.classList.remove("hidden");
+        }
+    });
+}
+
+function openClassificationModal(channel) {
+    const modal = document.getElementById("channel-classification-modal");
+    if (!modal) return;
+
+    document.getElementById("class-channel-id").value = channel.id;
+    
+    // Hidratar info básica del canal
+    const thumbEl = document.getElementById("class-channel-thumb");
+    thumbEl.src = channel.thumbnailUrl || "";
+    thumbEl.alt = channel.title;
+
+    document.getElementById("class-channel-title").textContent = channel.title;
+    document.getElementById("class-channel-desc").textContent = channel.description || "Sin descripción";
+
+    // Generar checkboxes de categorías
+    const container = document.getElementById("classification-categories-checkboxes");
+    container.innerHTML = "";
+
+    if (currentCategories.length === 0) {
+        container.innerHTML = "<p class='form-instruction'>No existen categorías creadas. Crea una en el menú lateral primero.</p>";
+    } else {
+        currentCategories.forEach(cat => {
+            const isChecked = channel.categoryIds.includes(cat.id);
+            const label = document.createElement("label");
+            label.className = "checkbox-item-label";
+            label.innerHTML = `
+                <input type="checkbox" value="${cat.id}" ${isChecked ? "checked" : ""}>
+                <span>${escapeHtml(cat.name)}</span>
+            `;
+            container.appendChild(label);
+        });
+    }
+
+    // Mostrar modal
+    modal.classList.remove("hidden");
+    document.getElementById("classification-form-error").classList.add("hidden");
 }
 
 /* --- Administrador de Categorías (Fase 2) --- */

@@ -125,6 +125,44 @@
         </div>
     </div>
 
+    <!-- Modal de Clasificación de Canal (Fase 4) -->
+    <div id="channel-classification-modal" class="modal-overlay hidden">
+        <div class="modal-card classification-modal-card">
+            <header class="modal-header">
+                <h3 class="modal-title">Clasificar Canal</h3>
+                <button id="btn-close-classification-modal" class="btn-close-modal">&times;</button>
+            </header>
+            
+            <div class="modal-body">
+                <div class="classification-channel-info">
+                    <img id="class-channel-thumb" src="" alt="" class="channel-thumbnail-lg">
+                    <div class="classification-channel-text">
+                        <h4 id="class-channel-title">Nombre del Canal</h4>
+                        <p id="class-channel-desc" class="channel-desc-sm">Descripción del canal</p>
+                    </div>
+                </div>
+
+                <form id="channel-classification-form" class="classification-form">
+                    <input type="hidden" id="class-channel-id" value="">
+                    
+                    <div class="form-group">
+                        <label>Selecciona las categorías asociadas:</label>
+                        <div id="classification-categories-checkboxes" class="categories-checkbox-grid">
+                            <!-- Checkboxes cargados dinámicamente -->
+                        </div>
+                    </div>
+
+                    <div id="classification-form-error" class="form-field-error hidden"></div>
+
+                    <div class="form-actions">
+                        <button type="button" id="btn-cancel-classification" class="btn-secondary">Cancelar</button>
+                        <button type="submit" class="btn-primary">Guardar Clasificación</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Gestión de Categorías (Fase 2) -->
     <div id="categories-modal" class="modal-overlay hidden">
         <div class="modal-card categories-modal-card">
