@@ -144,6 +144,108 @@ def set_channel_blocked(channel_id):
     """, (channel_id,))
     return jsonify(_serialize_channel(cursor.fetchone())), 200
 
+@channels_bp.route("/channels/<int:channel_id>/categories", methods=["PUT"])
+def update_channel_categories(channel_id):
+    """Actualiza las categorías de un canal y registra las decisiones manuales."""
+    from datetime import datetime, timezone
+    data = request.get_json(silent=True) or {}
+    category_ids = data.get("categoryIds")
+
+    if category_ids is None or not isinstance(category_ids, list):
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Es necesario proveer una lista de IDs en 'categoryIds'."
+            }
+        }), 422
+
+    # Validar que todos los IDs sean enteros
+    for cid in category_ids:
+        if not isinstance(cid, int):
+            return jsonify({
+                "error": {
+                    "code": "VALIDATION_ERROR",
+                    "message": "Todos los IDs de categorías deben ser enteros."
+                }
+            }), 422
+
+    db = get_db()
+
+    # Verificar si el canal existe
+    cursor = db.execute("SELECT id FROM channels WHERE id = ?", (channel_id,))
+    if not cursor.fetchone():
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
+
+    # Validar existencia de categorías
+    if category_ids:
+        placeholders = ",".join("?" for _ in category_ids)
+        cursor = db.execute(f"SELECT COUNT(*) as count FROM categories WHERE id IN ({placeholders})", category_ids)
+        if cursor.fetchone()["count"] != len(set(category_ids)):
+            return jsonify({
+                "error": {
+                    "code": "NOT_FOUND",
+                    "message": "Una o más categorías provistas no existen."
+                }
+            }), 400
+
+    # Obtener categorías actuales
+    cursor = db.execute("SELECT category_id FROM channel_categories WHERE channel_id = ?", (channel_id,))
+    old_ids = {row["category_id"] for row in cursor.fetchall()}
+    new_ids = set(category_ids)
+
+    added_ids = new_ids - old_ids
+    removed_ids = old_ids - new_ids
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    try:
+        # 1. Procesar categorías agregadas
+        for cat_id in added_ids:
+            db.execute("""
+                INSERT INTO channel_categories (channel_id, category_id, source, created_at)
+                VALUES (?, ?, 'manual', ?)
+            """, (channel_id, cat_id, now_iso))
+
+            db.execute("""
+                INSERT INTO classification_decisions (channel_id, category_id, decision, updated_at)
+                VALUES (?, ?, 'include', ?)
+                ON CONFLICT(channel_id, category_id) DO UPDATE
+                SET decision = excluded.decision, updated_at = excluded.updated_at
+            """, (channel_id, cat_id, now_iso))
+
+        # 2. Procesar categorías eliminadas
+        for cat_id in removed_ids:
+            db.execute("""
+                DELETE FROM channel_categories
+                WHERE channel_id = ? AND category_id = ?
+            """, (channel_id, cat_id))
+
+            db.execute("""
+                INSERT INTO classification_decisions (channel_id, category_id, decision, updated_at)
+                VALUES (?, ?, 'exclude', ?)
+                ON CONFLICT(channel_id, category_id) DO UPDATE
+                SET decision = excluded.decision, updated_at = excluded.updated_at
+            """, (channel_id, cat_id, now_iso))
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return jsonify({
+            "error": {
+                "code": "DATABASE_ERROR",
+                "message": f"Fallo al actualizar categorías en base de datos: {e}"
+            }
+        }), 500
+
+    # Retornar el canal actualizado
+    cursor = db.execute("""
+        SELECT c.*, GROUP_CONCAT(cc.category_id) as category_ids
+        FROM channels c
+        LEFT JOIN channel_categories cc ON c.id = cc.channel_id
+        WHERE c.id = ?
+        GROUP BY c.id
+    """, (channel_id,))
+    return jsonify(_serialize_channel(cursor.fetchone())), 200
+
 @channels_bp.route("/channels/sync", methods=["POST"])
 def sync_channels():
     """Sincronizar suscripciones desde la API de YouTube."""
