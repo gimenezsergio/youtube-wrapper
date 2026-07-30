@@ -150,6 +150,7 @@ def callback():
 
         # Iniciar sesión segura, rotando el ID de sesión
         session.clear()
+        session.permanent = True
         session["authenticated"] = True
         session["email"] = email
         session["csrf_token"] = secrets.token_hex(32)
