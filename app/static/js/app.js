@@ -4,6 +4,10 @@ let csrfToken = null;
 let activeFormKeywords = []; // Array temporal para las keywords en el formulario
 let currentCategories = []; // Array con el listado actual de categorías cargadas
 
+// Variables de estado de paginación y filtros para canales
+let channelsNextCursor = null;
+let channelsSearchTimeout = null;
+
 document.addEventListener("DOMContentLoaded", () => {
     initApp();
 });
@@ -13,6 +17,9 @@ function initApp() {
     
     // Configurar menú móvil
     setupMobileMenu();
+    
+    // Configurar enrutador y clicks SPA (Fase 3)
+    setupSPARouting();
     
     // Verificar estado de autenticación inicial
     checkAuthStatus();
@@ -83,8 +90,12 @@ async function checkAuthStatus() {
             if (data.authenticated) {
                 csrfToken = data.csrfToken;
                 showAppShell(data.email);
-                // Cargar categorías una vez autenticado
-                loadCategories();
+                
+                // Cargar categorías primero para tenerlas cacheadas en la UI
+                await loadCategories();
+                
+                // Procesar la ruta actual después de la autenticación
+                handleCurrentRoute();
             } else {
                 csrfToken = null;
                 showLoginScreen();
@@ -212,6 +223,294 @@ function selectCategoryInSidebar(categoryId) {
     console.log(`Navegando a la categoría ID: ${categoryId}`);
 }
 
+/* --- Enrutador SPA de Navegación (Fase 3) --- */
+
+function setupSPARouting() {
+    // Interceptar clicks de barra lateral
+    const navChannels = document.getElementById("nav-channels");
+    const navHome = document.getElementById("nav-home");
+
+    if (navChannels) {
+        navChannels.addEventListener("click", (e) => {
+            e.preventDefault();
+            navigateToRoute("/channels");
+        });
+    }
+
+    if (navHome) {
+        navHome.addEventListener("click", (e) => {
+            e.preventDefault();
+            navigateToRoute("/");
+        });
+    }
+
+    // Escuchar el evento popstate para cuando el usuario retroceda/avance en el historial del navegador
+    window.addEventListener("popstate", () => {
+        handleCurrentRoute();
+    });
+}
+
+function navigateToRoute(route) {
+    window.history.pushState({}, "", route);
+    handleCurrentRoute();
+}
+
+function handleCurrentRoute() {
+    const path = window.location.pathname;
+    
+    // Resetear menú activo
+    document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
+
+    if (path === "/channels") {
+        const navChannels = document.getElementById("nav-channels");
+        if (navChannels) navChannels.classList.add("active");
+        renderChannelsView();
+    } else if (path === "/") {
+        const navHome = document.getElementById("nav-home");
+        if (navHome) navHome.classList.add("active");
+        renderHomeView();
+    }
+}
+
+function renderHomeView() {
+    const viewContainer = document.getElementById("view-container");
+    if (!viewContainer) return;
+    
+    viewContainer.innerHTML = `
+        <section class="welcome-screen">
+            <div class="hero-card">
+                <h2 class="hero-title">Recupera el control de tu feed</h2>
+                <p class="hero-description">Organiza tus suscripciones a tu manera y descubre contenido nuevo guiado por tus propios términos, sin algoritmos persuasivos.</p>
+                <div class="hero-actions">
+                    <a href="/channels" id="btn-hero-channels" class="btn-primary">Gestionar Canales</a>
+                </div>
+            </div>
+        </section>
+    `;
+    
+    document.getElementById("btn-hero-channels")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        navigateToRoute("/channels");
+    });
+}
+
+/* --- Vista de Gestión de Canales (Fase 3) --- */
+
+function renderChannelsView() {
+    const viewContainer = document.getElementById("view-container");
+    if (!viewContainer) return;
+
+    viewContainer.innerHTML = `
+        <div class="channels-view">
+            <div class="channels-header">
+                <h2 class="channels-title">Mis Canales</h2>
+                <button id="btn-sync-channels" class="btn-primary">🔄 Sincronizar Suscripciones</button>
+            </div>
+            
+            <div class="channels-toolbar">
+                <div class="toolbar-search">
+                    <span class="search-icon-inside">🔍</span>
+                    <input type="text" id="channel-search-input" placeholder="Buscar canales por título...">
+                </div>
+                <div class="toolbar-filters">
+                    <label class="filter-checkbox-label">
+                        <input type="checkbox" id="chk-filter-unclassified"> Solo sin clasificar
+                    </label>
+                    <label class="filter-checkbox-label">
+                        <input type="checkbox" id="chk-filter-subscribed" checked> Solo suscritos
+                    </label>
+                </div>
+            </div>
+            
+            <div id="channels-grid" class="channels-grid">
+                <div class="loading-placeholder-nav">Cargando listado de canales...</div>
+            </div>
+            
+            <div id="channels-pagination" class="pagination-container hidden">
+                <button id="btn-channels-load-more" class="btn-secondary">Cargar más canales</button>
+            </div>
+        </div>
+    `;
+
+    // Adjuntar listeners de eventos
+    const searchInput = document.getElementById("channel-search-input");
+    const chkUnclassified = document.getElementById("chk-filter-unclassified");
+    const chkSubscribed = document.getElementById("chk-filter-subscribed");
+    const btnLoadMore = document.getElementById("btn-channels-load-more");
+    const btnSync = document.getElementById("btn-sync-channels");
+
+    searchInput.addEventListener("input", () => {
+        clearTimeout(channelsSearchTimeout);
+        channelsSearchTimeout = setTimeout(() => {
+            loadChannelsList(true);
+        }, 300);
+    });
+
+    chkUnclassified.addEventListener("change", () => loadChannelsList(true));
+    chkSubscribed.addEventListener("change", () => loadChannelsList(true));
+
+    btnLoadMore.addEventListener("click", () => {
+        if (channelsNextCursor) {
+            loadChannelsList(false, channelsNextCursor);
+        }
+    });
+
+    btnSync.addEventListener("click", () => {
+        triggerSubscriptionSync();
+    });
+
+    // Carga inicial de datos
+    loadChannelsList(true);
+}
+
+async function loadChannelsList(reset = true, cursor = "") {
+    const grid = document.getElementById("channels-grid");
+    const pagination = document.getElementById("channels-pagination");
+    if (!grid) return;
+
+    if (reset) {
+        grid.innerHTML = '<div class="loading-placeholder-nav">Cargando canales...</div>';
+        channelsNextCursor = null;
+    }
+
+    const query = document.getElementById("channel-search-input")?.value.trim() || "";
+    const unclassified = document.getElementById("chk-filter-unclassified")?.checked || false;
+    const subscribed = document.getElementById("chk-filter-subscribed")?.checked || false;
+
+    // Construcción de la URL de API
+    let url = `/api/v1/channels?limit=30`;
+    if (query) url += `&query=${encodeURIComponent(query)}`;
+    if (unclassified) url += `&unclassified=true`;
+    if (subscribed) url += `&subscribed=true`;
+    if (cursor) url += `&cursor=${cursor}`;
+
+    try {
+        const response = await apiFetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            const channels = data.items || [];
+            channelsNextCursor = data.nextCursor;
+
+            if (reset) {
+                grid.innerHTML = "";
+            }
+
+            if (channels.length === 0 && reset) {
+                grid.innerHTML = '<div class="loading-placeholder-nav">No se encontraron canales. Pruebe re-sincronizando o cambiando filtros.</div>';
+                pagination.classList.add("hidden");
+                return;
+            }
+
+            channels.forEach(channel => {
+                const card = document.createElement("div");
+                card.className = `channel-card ${channel.blocked ? "blocked-channel" : ""}`;
+                
+                // Armar insignias
+                let badgesHtml = "";
+                if (channel.subscribed) badgesHtml += '<span class="badge badge-subscribed">Suscrito</span>';
+                if (channel.locallyFollowed) badgesHtml += '<span class="badge badge-followed">Seguido</span>';
+                if (channel.blocked) badgesHtml += '<span class="badge badge-blocked">Bloqueado</span>';
+
+                // Mostrar categorías
+                let categoriesHtml = "";
+                if (channel.categoryIds && channel.categoryIds.length > 0) {
+                    channel.categoryIds.forEach(catId => {
+                        const catObj = currentCategories.find(c => c.id === catId);
+                        if (catObj) {
+                            categoriesHtml += `<span class="channel-category-tag">${escapeHtml(catObj.name)}</span>`;
+                        }
+                    });
+                } else {
+                    categoriesHtml = '<span class="form-instruction">Sin clasificar</span>';
+                }
+
+                card.innerHTML = `
+                    <div class="channel-card-top">
+                        <img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">
+                        <div class="channel-card-info">
+                            <h4 class="channel-card-title">${escapeHtml(channel.title)}</h4>
+                            <div class="channel-badges">${badgesHtml}</div>
+                        </div>
+                    </div>
+                    <p class="channel-card-desc">${escapeHtml(channel.description || "Sin descripción")}</p>
+                    <div class="channel-card-categories">${categoriesHtml}</div>
+                    <div class="channel-card-actions">
+                        <button class="btn-secondary btn-sm btn-block-toggle">${channel.blocked ? "Desbloquear" : "Bloquear"}</button>
+                    </div>
+                `;
+
+                // Configurar botón de bloqueo
+                card.querySelector(".btn-block-toggle").addEventListener("click", async () => {
+                    try {
+                        const blockResp = await apiFetch(`/api/v1/channels/${channel.id}/block`, {
+                            method: "PUT",
+                            body: { blocked: !channel.blocked }
+                        });
+                        if (blockResp.ok) {
+                            // Recargar la lista en la página actual
+                            loadChannelsList(true);
+                        }
+                    } catch (error) {
+                        console.error("Error al bloquear canal:", error);
+                    }
+                });
+
+                grid.appendChild(card);
+            });
+
+            // Mostrar/ocultar paginación
+            if (channelsNextCursor) {
+                pagination.classList.remove("hidden");
+            } else {
+                pagination.classList.add("hidden");
+            }
+        }
+    } catch (error) {
+        console.error("Error cargando canales:", error);
+        if (reset) {
+            grid.innerHTML = '<div class="loading-placeholder-nav">Error de conexión al cargar los canales.</div>';
+        }
+    }
+}
+
+function triggerSubscriptionSync() {
+    // Crear y añadir el overlay de carga de sincronización dinámicamente si no existe
+    let syncOverlay = document.getElementById("sync-loading-overlay");
+    if (!syncOverlay) {
+        syncOverlay = document.createElement("div");
+        syncOverlay.id = "sync-loading-overlay";
+        syncOverlay.className = "sync-overlay";
+        syncOverlay.innerHTML = `
+            <div class="sync-card">
+                <div class="spinner"></div>
+                <h3 class="sync-title">Sincronizando con YouTube</h3>
+                <p class="sync-subtitle">Esto puede demorar unos segundos. Importando suscripciones y metadatos de canales...</p>
+            </div>
+        `;
+        document.body.appendChild(syncOverlay);
+    }
+    
+    syncOverlay.classList.remove("hidden");
+
+    apiFetch("/api/v1/channels/sync", { method: "POST" })
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            }
+            throw new Error("Fallo en sincronización externa.");
+        })
+        .then(result => {
+            syncOverlay.classList.add("hidden");
+            alert(`Sincronización completa:\n- Nuevos canales importados: ${result.created}\n- Canales actualizados: ${result.updated}\n- Canales desuscritos: ${result.unsubscribed}`);
+            loadChannelsList(true);
+        })
+        .catch(error => {
+            console.error("Error en sincronización:", error);
+            syncOverlay.classList.add("hidden");
+            alert("Error al sincronizar con YouTube. Verifique que sus credenciales OAuth estén bien configuradas.");
+        });
+}
+
 /* --- Administrador de Categorías (Fase 2) --- */
 
 function setupCategoryManager() {
@@ -222,7 +521,6 @@ function setupCategoryManager() {
     const btnCancelForm = document.getElementById("btn-cancel-category-form");
     const form = document.getElementById("category-form");
     
-    const listView = document.getElementById("categories-list-view");
     const btnAddKw = document.getElementById("btn-add-kw");
     const kwWeightInput = document.getElementById("kw-weight-input");
     const kwWeightValue = document.getElementById("kw-weight-value");
@@ -324,6 +622,7 @@ function setupCategoryManager() {
     });
 }
 
+// (Las funciones auxiliares de Categorías permanecen igual)
 function showCategoryForm(category = null) {
     const listView = document.getElementById("categories-list-view");
     const form = document.getElementById("category-form");
