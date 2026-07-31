@@ -990,12 +990,19 @@ body {
 
 .toolbar-search input {
     width: 100%;
-    background-color: rgba(9, 13, 22, 0.4);
+    background-color: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-sm);
+    border-radius: 8px;
     color: var(--text-primary);
     padding: 10px 14px 10px 36px;
     font-size: 14px;
+    outline: none;
+    transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+
+.toolbar-search input:focus {
+    border-color: var(--accent);
+    background-color: rgba(255, 255, 255, 0.08);
 }
 
 .search-icon-inside {
@@ -1419,7 +1426,7 @@ body {
 }
 
 .select-filter {
-    background-color: var(--card-bg);
+    background-color: var(--bg-surface);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     padding: 8px 12px;
@@ -1444,17 +1451,16 @@ body {
 .video-card {
     display: flex;
     flex-direction: column;
-    background-color: var(--card-bg);
+    background-color: var(--bg-surface);
     border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-lg);
     overflow: hidden;
-    transition: transform var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
 }
 
 .video-card:hover {
-    transform: translateY(-4px);
     border-color: rgba(255, 255, 255, 0.15);
-    box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }
 
 .video-card.watched-video {
