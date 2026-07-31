@@ -44,7 +44,7 @@ class FakeYouTubeGateway:
         }
         self.video_details = [
             {"youtube_video_id": "vid_1", "duration_seconds": 600, "content_type": "video"},
-            {"youtube_video_id": "vid_2", "duration_seconds": 120, "content_type": "video"},
+            {"youtube_video_id": "vid_2", "duration_seconds": 240, "content_type": "video"},
             {"youtube_video_id": "vid_3", "duration_seconds": 1800, "content_type": "live"}
         ]
 
@@ -279,20 +279,20 @@ def test_videos_query_search(auth_client, seed_data, app):
 
 
 def test_videos_shorts_filtering(auth_client, seed_data, app):
-    """Prueba que los videos cortos (Shorts, <= 60s) se filtren del feed."""
+    """Prueba que los videos cortos (<= 180s) se filtren del feed."""
     fake_gateway = FakeYouTubeGateway()
 
-    # Agregar un video Short (45 segundos)
+    # Agregar un video corto (120 segundos)
     fake_gateway.playlist_items["UU_A"]["items"].append({
         "youtube_video_id": "vid_short",
-        "title": "Video Corto (Short)",
+        "title": "Video Corto",
         "description": "Short description",
         "published_at": "2026-07-30T11:00:00Z",
         "thumbnail_url": "t_short"
     })
     fake_gateway.video_details.append({
         "youtube_video_id": "vid_short",
-        "duration_seconds": 45,
+        "duration_seconds": 120,
         "content_type": "video"
     })
 
