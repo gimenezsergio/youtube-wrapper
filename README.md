@@ -1,6 +1,28 @@
-# YouTube Curator
+# 📺 YouTube Curator
 
-YouTube Curator es una aplicación web personal diseñada para organizar y descubrir contenido de YouTube sin depender del algoritmo oficial.
+**YouTube Curator** es una aplicación web personal diseñada para organizar tus suscripciones de YouTube y ver únicamente el contenido de los canales que tú decidas.
+
+---
+
+## 🎯 El Problema: El desorden del Feed de YouTube
+
+Al utilizar la plataforma de YouTube directamente, resulta difícil seguir las publicaciones de tus canales de forma ordenada debido a:
+
+*   **Recomendaciones irrelevantes** de videos que no tienen relación con tus intereses reales.
+*   **Canales sugeridos que no conoces** y que aparecen constantemente en tu pantalla de inicio.
+*   **Videos mezclados sin categorizar**, lo que hace difícil separar las temáticas que quieres ver en cada momento (por ejemplo, desarrollo de software, música, salud o literatura).
+
+---
+
+## 💡 La Solución: Tus Canales, en tus propias Categorías
+
+**YouTube Curator** te permite organizar tu biblioteca de canales seguidos de forma sencilla y estructurada en una interfaz minimalista:
+
+1.  **Categorización a tu medida**: Agrupa tus canales en las categorías que decidas (como *Desarrollo Web*, *Salud y Fitness*, o *Filosofía y letras*) para ver solo esa temática cuando quieras.
+2.  **Feeds cronológicos y limpios**: Accede a listas de videos ordenadas por fecha de publicación, compuestas exclusivamente por los canales que sigues.
+3.  **Espacio ordenado**: Marca videos como vistos de forma manual o al abrirlos, permitiéndote filtrarlos para ver siempre las novedades de tus creadores favoritos.
+
+---
 
 ## Requisitos de Sistema
 
