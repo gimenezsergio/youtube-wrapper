@@ -516,15 +516,67 @@ async function loadCategoryVideos(categoryId, reset = true, cursor = "") {
     const pagination = document.getElementById("videos-pagination");
     if (!container) return;
 
-    if (reset) {
-        container.innerHTML = '<div class="loading-placeholder-nav">Cargando videos...</div>';
-        videosNextCursor = null;
-    }
-
     const view = document.getElementById("btn-view-feed")?.classList.contains("active") ? "feed" : "channels";
     const watched = document.getElementById("select-filter-watched")?.value || "false";
     const origin = document.getElementById("select-filter-origin")?.value || "all";
     const query = document.getElementById("video-search-input")?.value.trim() || "";
+
+    if (reset) {
+        videosNextCursor = null;
+        if (view === "feed") {
+            let skeletonsHtml = '<div class="videos-feed-grid">';
+            for (let i = 0; i < 6; i++) {
+                skeletonsHtml += `
+                    <div class="skeleton-card">
+                        <div class="skeleton-thumbnail"></div>
+                        <div class="skeleton-info-row">
+                            <div class="skeleton-avatar"></div>
+                            <div class="skeleton-text-container">
+                                <div class="skeleton-title"></div>
+                                <div class="skeleton-meta"></div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            skeletonsHtml += '</div>';
+            container.innerHTML = skeletonsHtml;
+        } else {
+            let skeletonsHtml = '<div class="channels-feed-list">';
+            for (let c = 0; c < 2; c++) {
+                skeletonsHtml += `
+                    <div class="channel-video-group-box">
+                        <div class="channel-group-header-row" style="cursor: default; border-bottom: none; margin-bottom: 0;">
+                            <div class="channel-group-header-left">
+                                <div class="skeleton-avatar" style="width: 28px; height: 28px;"></div>
+                                <div class="skeleton-title" style="width: 150px; height: 14px; margin: 0;"></div>
+                            </div>
+                        </div>
+                        <div class="channel-group-videos-grid" style="margin-top: 15px;">
+                `;
+                for (let i = 0; i < 3; i++) {
+                    skeletonsHtml += `
+                        <div class="skeleton-card">
+                            <div class="skeleton-thumbnail"></div>
+                            <div class="skeleton-info-row">
+                                <div class="skeleton-avatar"></div>
+                                <div class="skeleton-text-container">
+                                    <div class="skeleton-title"></div>
+                                    <div class="skeleton-meta"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                skeletonsHtml += `
+                        </div>
+                    </div>
+                `;
+            }
+            skeletonsHtml += '</div>';
+            container.innerHTML = skeletonsHtml;
+        }
+    }
 
     let url = `/api/v1/videos?limit=24&view=${view}&watched=${watched}&origin=${origin}`;
     if (categoryId) {
@@ -682,13 +734,25 @@ function renderChannelsViewGrouped(container, groups) {
 }
 
 function renderGroupsList(targetContainer, groups) {
-    groups.forEach((group, groupIdx) => {
-        const groupEl = document.createElement("div");
-        // El primer canal de la sección viene expandido, los demás colapsados para limpieza visual
-        groupEl.className = `channel-video-group-box ${groupIdx === 0 ? "" : "is-collapsed"}`;
+    const expandedList = getExpandedChannels();
 
+    groups.forEach((group, groupIdx) => {
         const channel = group.channel;
         const videos = group.videos || [];
+
+        let collapsedClass = "is-collapsed";
+        if (expandedList) {
+            if (expandedList.includes(channel.id)) {
+                collapsedClass = "";
+            }
+        } else {
+            if (groupIdx === 0) {
+                collapsedClass = "";
+            }
+        }
+
+        const groupEl = document.createElement("div");
+        groupEl.className = `channel-video-group-box ${collapsedClass}`;
 
         groupEl.innerHTML = `
             <div class="channel-group-header-row">
@@ -709,7 +773,8 @@ function renderGroupsList(targetContainer, groups) {
         // Alternar colapsado al hacer clic en la cabecera
         const header = groupEl.querySelector(".channel-group-header-row");
         header.addEventListener("click", () => {
-            groupEl.classList.toggle("is-collapsed");
+            const isCollapsed = groupEl.classList.toggle("is-collapsed");
+            setChannelExpanded(channel.id, !isCollapsed);
         });
 
         const vGrid = groupEl.querySelector(".channel-group-videos-grid");
@@ -1543,6 +1608,34 @@ function showConfirmDialog(title, message) {
         document.getElementById("btn-confirm-cancel").addEventListener("click", () => close(false));
         document.getElementById("btn-confirm-ok").addEventListener("click", () => close(true));
     });
+}
+
+const EXP_CHANNELS_KEY = "yt_curator_expanded_channels";
+
+function getExpandedChannels() {
+    try {
+        const stored = localStorage.getItem(EXP_CHANNELS_KEY);
+        return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+        console.error("Error al leer expanded channels del localStorage:", e);
+        return null;
+    }
+}
+
+function setChannelExpanded(channelId, isExpanded) {
+    try {
+        let expanded = getExpandedChannels() || [];
+        if (isExpanded) {
+            if (!expanded.includes(channelId)) {
+                expanded.push(channelId);
+            }
+        } else {
+            expanded = expanded.filter(id => id !== channelId);
+        }
+        localStorage.setItem(EXP_CHANNELS_KEY, JSON.stringify(expanded));
+    } catch (e) {
+        console.error("Error al escribir expanded channels en localStorage:", e);
+    }
 }
 
 function escapeHtml(str) {

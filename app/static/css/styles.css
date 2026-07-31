@@ -1,43 +1,43 @@
 /* YouTube Curator — Premium CSS Design System */
 
 :root {
-    /* Paleta de colores HSL */
-    --bg-main: #090d16;
-    --bg-surface: #0f172a;
-    --bg-surface-glass: rgba(15, 23, 42, 0.75);
-    --border-color: rgba(255, 255, 255, 0.08);
-    --border-color-hover: rgba(255, 255, 255, 0.15);
+    /* Paleta de colores HSL - Estilo Apple Minimalista */
+    --bg-main: #000000;          /* Negro OLED puro */
+    --bg-surface: #1c1c1e;       /* Gris macOS oscuro */
+    --bg-surface-glass: rgba(28, 28, 30, 0.72);
+    --border-color: rgba(255, 255, 255, 0.06); /* Borde translúcido ultrafino */
+    --border-color-hover: rgba(255, 255, 255, 0.12);
     
     /* Textos */
-    --text-primary: #f8fafc;
-    --text-secondary: #94a3b8;
-    --text-muted: #64748b;
+    --text-primary: #f5f5f7;     /* Blanco suave Apple */
+    --text-secondary: #86868b;   /* Gris neutro secundario */
+    --text-muted: #48484a;       /* Gris apagado */
     
     /* Accent y branding */
-    --accent: #8b5cf6; /* Violet */
-    --accent-hover: #a78bfa;
-    --accent-glow: rgba(139, 92, 246, 0.25);
-    --youtube-red: #ef4444; /* Crimson-ish red */
-    --success: #10b981; /* Emerald */
-    --warning: #f59e0b; /* Amber */
+    --accent: #007aff;           /* Azul Apple Link */
+    --accent-hover: #0a84ff;
+    --accent-glow: rgba(0, 122, 255, 0.12);
+    --youtube-red: #ff453a;      /* Rojo Apple System */
+    --success: #30d158;          /* Verde Apple System */
+    --warning: #ffd60a;          /* Amarillo Apple System */
     
-    /* Fuentes */
-    --font-heading: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
-    --font-body: 'Inter', system-ui, -apple-system, sans-serif;
+    /* Fuentes de sistema Apple */
+    --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
     
     /* Shadows y bordes */
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-    --shadow-glow: 0 0 20px 0 var(--accent-glow);
+    --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 12px 30px 0 rgba(0, 0, 0, 0.5);
+    --shadow-glow: 0 0 15px 0 var(--accent-glow);
     
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
     --radius-full: 9999px;
     
-    --transition-fast: 0.15s ease;
-    --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-fast: 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
+    --transition-normal: 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 
 /* Reset de estilos */
@@ -55,6 +55,8 @@ body {
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
     height: 100vh;
+    letter-spacing: -0.011em;
+    line-height: 1.47059;
 }
 
 /* Custom Scrollbar */
@@ -104,25 +106,24 @@ body {
 .logo-icon {
     width: 36px;
     height: 36px;
-    background: linear-gradient(135deg, var(--youtube-red), var(--accent));
-    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 9px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-family: var(--font-heading);
-    font-weight: 800;
-    font-size: 16px;
-    color: white;
-    box-shadow: 0 0 15px rgba(239, 68, 68, 0.4);
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-primary);
 }
 
 .brand-title {
     font-family: var(--font-heading);
-    font-size: 20px;
-    font-weight: 700;
-    background: linear-gradient(to right, var(--text-primary), var(--text-secondary));
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: -0.018em;
 }
 
 .sidebar-nav {
@@ -136,7 +137,7 @@ body {
     font-size: 11px;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.05em;
     color: var(--text-muted);
     margin: 24px 8px 8px 8px;
 }
@@ -145,27 +146,25 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 12px 16px;
+    padding: 10px 14px;
     color: var(--text-secondary);
     text-decoration: none;
     border-radius: var(--radius-sm);
     font-size: 14px;
     font-weight: 500;
-    transition: all var(--transition-fast);
+    transition: background-color var(--transition-fast), color var(--transition-fast);
     margin-bottom: 4px;
 }
 
 .nav-item:hover {
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: rgba(255, 255, 255, 0.04);
     color: var(--text-primary);
-    transform: translateX(4px);
 }
 
 .nav-item.active {
-    background: linear-gradient(to right, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.02));
-    color: var(--accent-hover);
-    border-left: 3px solid var(--accent);
-    padding-left: 13px; /* compensa el borde */
+    background-color: rgba(0, 122, 255, 0.15);
+    color: #ffffff;
+    font-weight: 600;
 }
 
 .categories-list {
@@ -355,24 +354,44 @@ body {
 
 .btn-primary {
     display: inline-block;
-    background: linear-gradient(135deg, var(--accent), #7c3aed);
+    background-color: var(--accent);
     border: none;
     color: white;
-    padding: 12px 28px;
+    padding: 10px 24px;
     border-radius: var(--radius-md);
     font-family: var(--font-heading);
-    font-size: 15px;
-    font-weight: 600;
+    font-size: 14px;
+    font-weight: 500;
     text-decoration: none;
-    box-shadow: var(--shadow-glow);
-    transition: all var(--transition-normal);
+    cursor: pointer;
+    transition: background-color var(--transition-fast), opacity var(--transition-fast);
     position: relative;
     z-index: 1;
 }
 
 .btn-primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 0 25px rgba(139, 92, 246, 0.45);
+    background-color: var(--accent-hover);
+    opacity: 0.95;
+}
+
+.btn-secondary {
+    display: inline-block;
+    background-color: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    padding: 9px 24px;
+    border-radius: var(--radius-md);
+    font-family: var(--font-heading);
+    font-size: 14px;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.btn-secondary:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-color-hover);
 }
 
 /* Modales y Overlays de actualización */
@@ -927,10 +946,6 @@ body {
     margin-top: 8px;
 }
 
-.btn-secondary:hover {
-    background-color: rgba(255, 255, 255, 0.08);
-    border-color: var(--border-color-hover);
-}
 
 /* Vista de Canales (Fase 3) */
 .channels-view {
@@ -1691,6 +1706,76 @@ body {
     justify-content: center;
     width: 100%;
     margin-top: 16px;
+}
+
+/* --- Skeleton Loader Component --- */
+.skeleton-card {
+    display: flex;
+    flex-direction: column;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    height: 310px;
+}
+
+.skeleton-thumbnail {
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+}
+
+.skeleton-info-row {
+    display: flex;
+    gap: 12px;
+    padding: 16px;
+    align-items: flex-start;
+}
+
+.skeleton-avatar {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--radius-full);
+    background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    flex-shrink: 0;
+}
+
+.skeleton-text-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+
+.skeleton-title {
+    height: 14px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    width: 85%;
+}
+
+.skeleton-meta {
+    height: 10px;
+    border-radius: 4px;
+    background: linear-gradient(90deg, #2c2c2e 25%, #3a3a3c 50%, #2c2c2e 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite linear;
+    width: 50%;
+}
+
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
 }
 
 
