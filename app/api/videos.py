@@ -46,7 +46,10 @@ def _serialize_video(row, discovery_contexts=None, category_ids=None):
 
 def _build_where_clause(category_id, channel_ids_str, watched, origin, query):
     """Construye las cláusulas WHERE y los parámetros para la consulta de videos."""
-    where_clauses = ["c.is_blocked = 0"]
+    where_clauses = [
+        "c.is_blocked = 0",
+        "(v.duration_seconds IS NULL OR v.duration_seconds > 60)"  # Excluir Shorts (videos <= 60s)
+    ]
     params = []
 
     # Excluir videos ocultados por feedback

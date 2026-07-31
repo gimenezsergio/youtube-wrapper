@@ -278,6 +278,45 @@ def test_videos_query_search(auth_client, seed_data, app):
     assert len(data_none["items"]) == 0
 
 
+def test_videos_shorts_filtering(auth_client, seed_data, app):
+    """Prueba que los videos cortos (Shorts, <= 60s) se filtren del feed."""
+    fake_gateway = FakeYouTubeGateway()
+
+    # Agregar un video Short (45 segundos)
+    fake_gateway.playlist_items["UU_A"]["items"].append({
+        "youtube_video_id": "vid_short",
+        "title": "Video Corto (Short)",
+        "description": "Short description",
+        "published_at": "2026-07-30T11:00:00Z",
+        "thumbnail_url": "t_short"
+    })
+    fake_gateway.video_details.append({
+        "youtube_video_id": "vid_short",
+        "duration_seconds": 45,
+        "content_type": "video"
+    })
+
+    service = VideoService(gateway=fake_gateway)
+
+    with app.app_context():
+        conn = get_db_connection(app.config["DATABASE_PATH"])
+        service.sync_videos(conn)
+        conn.close()
+
+    # Obtener el feed
+    resp = auth_client.get("/api/v1/videos?view=feed")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+
+    # Debe traer vid_1 y vid_2, pero NO vid_short
+    items = data["items"]
+    video_ids = [v["youtubeVideoId"] for v in items]
+
+    assert "vid_1" in video_ids
+    assert "vid_2" in video_ids
+    assert "vid_short" not in video_ids
+
+
 def test_videos_performance(auth_client, seed_data, app):
     """Prueba de rendimiento con 500 canales y 20.000 videos sintéticos (RF-13)."""
     import time
