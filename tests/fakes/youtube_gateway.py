@@ -114,4 +114,4 @@ class FakeYouTubeGateway:
             "relevance_language": relevance_language
         })
         # Buscar en respuestas simuladas, por defecto retorna vacío si no hay mock
-        return self.search_responses.get(q, [])
+        return self.search_responses.get(q, self.search_responses.get("default", []))

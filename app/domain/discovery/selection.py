@@ -40,8 +40,8 @@ def sort_candidates_stable(candidates: List[DiscoveryCandidateDomain]) -> List[D
     # published_at es un string ISO, por lo que podemos usar comparación lexicográfica inversa
     return sorted(
         candidates,
-        key=lambda c: (-c.score, c.published_at or "", c.youtube_video_id or ""),
-        reverse=False
+        key=lambda c: (c.score, c.published_at or "", c.youtube_video_id or ""),
+        reverse=True
     )
 
 def select_batch_diverse(
