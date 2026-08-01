@@ -133,6 +133,25 @@ Responsabilidades:
 | `weight` | REAL | default 1 |
 | `polarity` | TEXT | `positive` o `negative` |
 
+#### `category_exploration_topics`
+
+Temas que amplían una categoría sin modificar sus palabras clave principales.
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `id` | INTEGER | PK |
+| `category_id` | INTEGER | FK |
+| `term` | TEXT | NOT NULL |
+| `normalized_term` | TEXT | NOT NULL |
+| `weight` | REAL | default 1 |
+| `source` | TEXT | `manual` o `automatic` |
+| `status` | TEXT | `pending`, `approved` o `rejected` |
+| `rationale` | TEXT | explicación breve, nullable |
+| `created_at` | TEXT | |
+| `updated_at` | TEXT | |
+
+Restricción única: `(category_id, normalized_term)`. Los temas creados manualmente nacen `approved`; los propuestos automáticamente nacen `pending`. Una fila rechazada se conserva para impedir que el mismo término sea propuesto reiteradamente.
+
 #### `channel_categories`
 
 | Campo | Tipo | Regla |
@@ -199,12 +218,32 @@ Permite que un mismo video sea candidato en varias categorías.
 | `video_id` | INTEGER | FK |
 | `category_id` | INTEGER | FK |
 | `score` | REAL | 0..100 |
+| `band` | TEXT | `related`, `adjacent` o `exploratory` |
 | `reasons_json` | TEXT | JSON |
 | `status` | TEXT | `active`, `hidden`, `accepted`, `expired` |
+| `last_refresh_run_id` | INTEGER | FK nullable |
+| `selection_rank` | INTEGER | posición estable dentro de la categoría y actualización |
 | `first_seen_at` | TEXT | |
 | `last_seen_at` | TEXT | |
 
 PK compuesta: `(video_id, category_id)`.
+
+#### `discovery_batches`
+
+Resume el resultado estable de una categoría dentro de una actualización y permite explicar lotes incompletos.
+
+| Campo | Tipo | Regla |
+|---|---|---|
+| `refresh_run_id` | INTEGER | FK |
+| `category_id` | INTEGER | FK |
+| `target_total` | INTEGER | default 8 |
+| `selected_total` | INTEGER | >= 0 |
+| `target_by_band_json` | TEXT | JSON |
+| `selected_by_band_json` | TEXT | JSON |
+| `shortfall_reason` | TEXT | nullable |
+| `generated_at` | TEXT | |
+
+PK compuesta: `(refresh_run_id, category_id)`. Valores permitidos de `shortfall_reason`: `insufficient_candidates`, `insufficient_signals`, `no_approved_topics`, `budget_exhausted`, `quota_exhausted` y `external_error`.
 
 #### `video_user_state`
 
@@ -254,6 +293,9 @@ Acciones: `more_like_this`, `less_like_this`, `hide_video`, `block_channel`, `ac
 - `videos(published_at DESC)`.
 - `videos(channel_id, published_at DESC)`.
 - `discovery_candidates(category_id, status, score DESC)`.
+- `discovery_candidates(category_id, last_refresh_run_id, selection_rank)`.
+- `discovery_batches(category_id, refresh_run_id)`.
+- `category_exploration_topics(category_id, status, normalized_term)`.
 - `channel_categories(category_id, channel_id)`.
 - `classification_suggestions(status, channel_id)`.
 - `channels(is_subscribed, is_blocked)`.
@@ -298,8 +340,12 @@ Para cada canal con `is_subscribed=true` o `is_locally_followed=true` y playlist
 
 - `DISCOVERY_MAX_SEARCHES_PER_REFRESH` limita búsquedas totales.
 - `DISCOVERY_MAX_SEARCHES_PER_CATEGORY` limita una categoría individual.
+- Valores iniciales: `10` búsquedas totales y `2` por categoría. Son configuración, no supuestos permanentes sobre la cuota externa.
+- El reparto usa round-robin por categoría: una primera búsqueda para cada categoría elegible antes de conceder una segunda.
 - El gateway debe devolver consumo estimado y respuesta de cuota.
 - Los límites reales deben leerse de configuración; no codificar una cuota diaria como constante permanente.
+- Para descubrimiento, `search.list` usa `type=video`, `maxResults<=50`, `publishedAfter` configurable, `relevanceLanguage`, `regionCode` y consultas `q` con operadores OR y NOT cuando corresponda.
+- `relatedToVideoId` no forma parte del diseño porque ya no está soportado por la API.
 
 ## 6. Actualización manual
 
@@ -386,53 +432,139 @@ Reglas:
 
 ## 8. Descubrimiento
 
-### 8.1 Generación de candidatos
+El descubrimiento es un motor propio de curación. YouTube aporta candidatos mediante búsquedas públicas; la aplicación define las consultas, aplica exclusiones, calcula la puntuación y selecciona un lote diverso. No se presenta como réplica de la portada ni como recomendación personal de YouTube.
 
-Por categoría:
+### 8.1 Bandas de proximidad
 
-1. Construir consultas a partir de palabras clave positivas.
-2. Añadir términos frecuentes y distintivos de canales confirmados.
-3. Añadir señales de los videos abiertos o marcados como vistos recientemente dentro de la categoría.
-4. Limitar consultas mediante los presupuestos global y por categoría.
-5. Buscar videos públicos.
-6. Hidratar detalles de videos y canales.
-7. Filtrar duplicados, bloqueos y exclusiones.
+Cada relación candidato-categoría pertenece a una banda:
 
-### 8.2 Puntuación inicial
+| Banda | Etiqueta de interfaz | Definición |
+|---|---|---|
+| `related` | Relacionado | Coincidencia directa con palabras clave, canales semilla o señales fuertes de la categoría. |
+| `adjacent` | Tema cercano | Cruce entre un ancla de la categoría y al menos un tema adyacente aprobado. |
+| `exploratory` | Para explorar | Conexión más débil pero explicable, derivada de temas aprobados, señales positivas o cruces entre disciplinas. |
 
-Puntuación normalizada 0..100:
+Ningún candidato puede ser `adjacent` o `exploratory` si no conserva una relación mínima configurable con la categoría de origen. La banda se calcula por categoría; un mismo video puede ser `related` en una y `adjacent` en otra.
 
-```text
- 35 coincidencia con palabras clave
-+ 25 similitud temática con canales semilla
-+ 15 actualidad
-+ 10 idioma preferido, si está configurado
-+ 15 feedback positivo relacionado
-+ 10 similitud con videos vistos recientemente
-- 40 feedback negativo relacionado
--100 canal bloqueado o video oculto
-```
+### 8.2 Temas adyacentes
 
-La suma se normaliza a 0..100. La fórmula debe ser una función pura configurable y probada.
+- El usuario puede crear temas adyacentes manualmente; se consideran aprobados desde su creación.
+- Un generador automático puede proponer términos con una explicación breve, pero los guarda como `pending`.
+- Las propuestas automáticas se generan dentro de una actualización manual. No se utilizan en esa misma actualización; después de ser aprobadas, participan a partir de la siguiente.
+- Solo `approved` participa en consultas, clasificación de banda o puntuación.
+- `rejected` no participa y se conserva como memoria negativa para evitar propuestas repetidas.
+- La generación automática es opcional. El descubrimiento debe seguir funcionando únicamente con términos manuales, palabras clave y metadatos locales.
 
-### 8.3 Explicación
-
-Guardar dos o tres razones legibles:
+Ejemplo para la categoría Fotografía editorial:
 
 ```json
 [
-  "Coincide con «llama.cpp» y «Ollama».",
-  "Temática similar a dos canales de IA local.",
-  "Publicado recientemente."
+  {"term": "dirección de arte", "status": "approved"},
+  {"term": "color grading cinematográfico", "status": "approved"},
+  {"term": "escenografía", "status": "pending"}
 ]
 ```
 
-### 8.4 Separación visual
+### 8.3 Generación de consultas
 
-- Los videos con origen `followed`, provenientes de canales suscriptos o seguidos localmente, ocupan el feed principal.
-- Descubrimiento aparece en bloque separado.
-- El filtro de procedencia puede mostrar solo uno de los dos conjuntos.
-- Toda tarjeta de descubrimiento lleva una etiqueta explícita.
+Por categoría:
+
+1. Normalizar palabras clave positivas y negativas.
+2. Extraer términos distintivos de canales asignados manualmente o mediante decisiones aceptadas.
+3. Incorporar señales de videos abiertos, vistos o valorados explícitamente dentro de la ventana configurada.
+4. Construir una consulta directa para `related`.
+5. Construir una consulta expandida combinando al menos un ancla de la categoría con temas adyacentes aprobados para `adjacent` y `exploratory`.
+6. Aplicar palabras clave negativas mediante exclusiones de consulta y filtrado local.
+7. Ejecutar búsquedas en round-robin respetando los presupuestos global y por categoría.
+8. Hidratar videos y canales en lotes.
+9. Filtrar duplicados, canales seguidos, bloqueos, ocultaciones, duración y mínimos de relevancia.
+
+Toda consulta generada debe poder explicar de qué palabras clave, tema aprobado o señal local provino. No se permite introducir silenciosamente un tema propuesto pero todavía no aprobado.
+
+### 8.4 Puntuación
+
+La banda y la puntuación son conceptos separados: la banda explica la distancia temática; la puntuación ordena candidatos dentro de su contexto.
+
+Puntuación inicial normalizada 0..100:
+
+```text
+  0..35 coincidencia temática con palabras clave o temas aprobados
++ 0..20 similitud con canales semilla
++ 0..15 similitud con señales locales recientes
++ 0..10 actualidad
++ 0..10 feedback positivo relacionado
++ 0..10 adecuación de diversidad y novedad para la banda
+- 0..40 feedback negativo relacionado
+-   100 canal bloqueado, video oculto o exclusión obligatoria
+```
+
+- La apertura o el marcado como visto constituyen una señal débil.
+- `more_like_this` constituye una señal explícita más fuerte.
+- La popularidad global y el número de visualizaciones no son componentes obligatorios en el MVP.
+- Los pesos, la ventana temporal y los mínimos por banda residen en configuración.
+- La función de puntuación debe ser pura, determinista para una misma entrada y probada con tablas de casos.
+- Debe existir una implementación base por coincidencia de términos. Un adaptador semántico puede mejorar similitud o propuestas, pero su fallo no puede interrumpir el descubrimiento base.
+
+### 8.5 Selección diversa del lote
+
+La configuración predeterminada por categoría y actualización es:
+
+```text
+5 related + 2 adjacent + 1 exploratory = 8 recomendaciones
+```
+
+Proceso de selección:
+
+1. Ordenar candidatos válidos por puntuación dentro de cada banda.
+2. Elegir iterativamente penalizando similitud excesiva con elementos ya seleccionados.
+3. Limitar a 2 videos por canal en el lote de una categoría.
+4. Evitar títulos prácticamente duplicados y varias versiones del mismo contenido cuando puedan detectarse.
+5. Aplicar esta matriz de fallback sin aumentar la deriva temática:
+
+   | Faltante | Puede cubrirse con | No puede cubrirse con |
+   |---|---|---|
+   | `related` | `adjacent` | `exploratory` adicional |
+   | `adjacent` | `related` | `exploratory` adicional |
+   | `exploratory` | `adjacent`, luego `related` | candidato sin vínculo mínimo |
+
+6. Si aun así no se alcanza el total, devolver un lote menor. Nunca relajar bloqueos, palabras negativas ni relevancia mínima para llenar ocho lugares.
+7. Persistir `band`, `score`, `selection_rank`, razones y `last_refresh_run_id` para que el orden sea estable durante la lectura del lote.
+
+En una nueva actualización, los candidatos activos del lote anterior que no vuelven a seleccionarse pasan a `expired`; los estados `hidden` y `accepted` no se revierten.
+
+### 8.6 Explicaciones
+
+Cada candidato visible guarda entre una y tres razones legibles, específicas para su categoría y coherentes con la banda:
+
+```json
+{
+  "band": "adjacent",
+  "reasons": [
+    "Combina fotografía editorial con dirección de arte, un tema aprobado.",
+    "Se relaciona con videos de iluminación que viste recientemente.",
+    "Publicado recientemente."
+  ]
+}
+```
+
+No son razones válidas frases genéricas como “Recomendado para vos” o afirmaciones sobre datos que la aplicación no posee.
+
+### 8.7 Presentación y límites de interacción
+
+- Los videos de canales suscriptos o seguidos localmente ocupan el feed cronológico principal.
+- Descubrimiento usa una vista separada, agrupable por categoría.
+- El feed principal usa `origin=followed` por defecto aunque la API permita consultar otros orígenes explícitamente.
+- Cada tarjeta muestra la etiqueta `Relacionado`, `Tema cercano` o `Para explorar`, además de sus razones.
+- La vista no carga recomendaciones infinitamente al desplazarse. Un lote nuevo solo se genera mediante actualización manual.
+- `more_like_this` y `less_like_this` se muestran como “Me interesa” y “No me interesa”.
+
+### 8.8 Sugerencia y aceptación de canales
+
+- La tarjeta permite seguir localmente el canal en cualquier momento.
+- Adicionalmente, la interfaz puede destacar la sugerencia cuando existan señales positivas sobre al menos 2 videos distintos del canal en la misma categoría y ventana temporal.
+- La señal puede combinar apertura, marcado como visto y feedback explícito; el umbral y los pesos son configurables.
+- La sugerencia nunca activa seguimiento por sí sola.
+- Al aceptar, `is_locally_followed=true`, se crea la relación de categoría con fuente `accepted_discovery` y el origen visible de sus videos pasa a `followed` sin duplicar tarjetas.
 
 ## 9. Consultas de feed
 
@@ -448,13 +580,23 @@ Consulta base:
 - `ORDER BY published_at DESC, id DESC`;
 - paginación por cursor recomendado: `(published_at, id)`.
 
-El origen de respuesta se calcula con precedencia `followed` sobre `discovery`, evitando duplicar una tarjeta cuando un canal descubierto ya fue aceptado. `discoveryContexts` conserva todas las categorías aplicables cuando la consulta no está acotada a una sola.
+El feed de interfaz solicita `origin=followed` de forma predeterminada. Cuando un consumidor solicita descubrimientos explícitamente, el origen de respuesta se calcula con precedencia `followed` sobre `discovery`, evitando duplicar una tarjeta cuando un canal descubierto ya fue aceptado. `discoveryContexts` conserva todas las categorías aplicables cuando la consulta no está acotada a una sola.
 
 ### 9.2 Vista Por canal
 
 - Seleccionar canales de la categoría.
 - Para cada canal, obtener una cantidad limitada de videos.
 - Evitar N+1 mediante window functions de SQLite o consulta agrupada.
+
+### 9.3 Consulta de descubrimiento
+
+- `/discoveries` consulta únicamente candidatos activos del último lote aplicable.
+- Permite filtrar por `categoryId` y `band`.
+- Ordena por categoría y `selection_rank`, no por popularidad ni por fecha de publicación.
+- Devuelve cada elemento como video más un único contexto de descubrimiento para la categoría solicitada.
+- Si no se especifica categoría, puede devolver una respuesta agrupada o paginada conservando el contexto de cada elemento; el contrato HTTP adopta la forma paginada.
+- Los estados ocultos, aceptados y expirados no aparecen en la consulta normal.
+- La respuesta incluye un resumen por categoría con objetivo, cantidad seleccionada y causa del faltante cuando el lote esté incompleto.
 
 ## 10. Frontend
 
@@ -474,6 +616,7 @@ Ejemplo:
 
 ```text
 /category/4?view=feed&channels=12,18&watched=false&origin=followed
+/discoveries?categoryId=4&band=adjacent
 ```
 
 ### 10.3 Diseño responsive
@@ -482,6 +625,8 @@ Ejemplo:
 - Móvil: encabezado compacto + selector de categoría + panel inferior de filtros.
 - Rejilla fluida de tarjetas.
 - Vista por canal horizontal solo si mantiene accesibilidad táctil; de lo contrario, listas apiladas.
+- Descubrimiento muestra las tres etiquetas de banda con texto, no solo color.
+- La gestión de categoría muestra temas adyacentes separados en `Pendientes`, `Aprobados` y `Rechazados`, con acciones explícitas para aprobar, rechazar y revertir.
 
 ## 11. PWA
 
@@ -508,12 +653,18 @@ No bloquear la implementación con estas decisiones:
 - umbrales de confianza;
 - límite de consultas de descubrimiento;
 - idioma preferido.
+- cantidad total y mezcla de bandas del lote;
+- mínimos de relevancia por banda;
+- límite de videos por canal;
+- ventana temporal de señales y umbral para sugerir seguimiento local.
 
 Todas deben residir en configuración y contar con valores conservadores.
 
 ## 14. Limitaciones explícitas de YouTube
 
 - La API no expone las recomendaciones personales de la portada; el descubrimiento es propio.
+- La API no expone el historial completo ni la lista “Ver más tarde” para este caso de uso.
+- `search.list.relatedToVideoId` fue retirado y no puede utilizarse para buscar videos similares.
 - La API no ofrece un indicador universal y estable para identificar Shorts. El MVP no promete ese filtro.
 - La aplicación solo sabe que un video fue abierto o marcado; no conoce porcentaje reproducido.
 - Los metadatos remotos pueden estar ausentes, cambiar o dejar de estar disponibles.

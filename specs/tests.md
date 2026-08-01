@@ -25,8 +25,8 @@ Las pruebas nunca deben consumir cuota real de YouTube.
 | RF-08 | VIEW-01..05 |
 | RF-09 | FILTER-01..07 |
 | RF-10 | WATCH-01..05 |
-| RF-11 | DISC-01..13 |
-| RF-12 | FEED-01..07 |
+| RF-11 | DISC-01..26 |
+| RF-12 | FEED-01..10 |
 | RF-13 | PWA-01..05 |
 | RF-14 | OPS-01..05 |
 
@@ -314,7 +314,7 @@ El worker recupera una ejecución abandonada sin que dos workers la procesen sim
 
 ### DISC-01 — Consultas
 
-Combina palabras clave con señales de canales semilla y respeta límite.
+Construye una consulta directa y una expandida combinando palabras clave, señales de canales semilla y temas aprobados.
 
 ### DISC-02 — Sin palabras clave
 
@@ -334,7 +334,7 @@ Canales bloqueados reciben exclusión absoluta.
 
 ### DISC-06 — Puntuación
 
-Casos de tabla validan cada componente y límites 0..100.
+Casos de tabla validan cada componente, penalizaciones, determinismo y límites 0..100.
 
 ### DISC-07 — Razones
 
@@ -363,6 +363,58 @@ Al aceptar su canal, el video se devuelve como `followed` sin duplicar tarjeta y
 ### DISC-13 — Señal de visualización
 
 Un video visto recientemente dentro de una categoría aporta términos y similitud a esa categoría, sin afectar categorías no relacionadas.
+
+### DISC-14 — Tema manual aprobado
+
+Crear manualmente un tema adyacente lo guarda como `approved` y permite utilizarlo en la siguiente actualización.
+
+### DISC-15 — Propuesta pendiente
+
+Un tema automático `pending` aparece para revisión, pero no forma parte de consultas, bandas ni puntuaciones.
+
+### DISC-16 — Tema rechazado
+
+Un tema `rejected` no participa en descubrimiento y no vuelve a proponerse automáticamente con el mismo término normalizado.
+
+### DISC-17 — Aprobación y reversión
+
+Cambiar un tema de `pending` a `approved` habilita su uso; cambiarlo luego a `rejected` lo excluye de actualizaciones posteriores sin borrar auditoría.
+
+### DISC-18 — Clasificación de bandas
+
+Una tabla de candidatos produce `related`, `adjacent` y `exploratory` de acuerdo con las señales y mínimos configurados. La banda se calcula por relación video-categoría.
+
+### DISC-19 — Mezcla completa
+
+Con candidatos suficientes, el lote de una categoría contiene exactamente 8 elementos: 5 `related`, 2 `adjacent` y 1 `exploratory`.
+
+### DISC-20 — Fallback entre bandas
+
+Casos de tabla validan la matriz completa: `related` solo se cubre con `adjacent`; `adjacent` solo con `related`; `exploratory` con `adjacent` y luego `related`. Nunca se incluyen exploratorios adicionales para cubrir las bandas más cercanas ni candidatos por debajo del mínimo.
+
+### DISC-21 — Lote parcial seguro
+
+Con solo 6 candidatos válidos, devuelve 6 y explica el faltante; no relaja bloqueos, términos negativos ni relevancia mínima.
+
+### DISC-22 — Diversidad de canal
+
+Aunque un canal tenga las puntuaciones más altas, no selecciona más de 2 videos suyos en el lote de la misma categoría.
+
+### DISC-23 — Duplicados temáticos
+
+Videos con títulos casi idénticos reciben penalización de diversidad y no desplazan innecesariamente a candidatos de otros temas o canales.
+
+### DISC-24 — Reparto justo de búsquedas
+
+Con presupuesto limitado, el orden de llamadas concede una primera búsqueda a cada categoría elegible antes de conceder la segunda a cualquiera.
+
+### DISC-25 — Consulta del lote
+
+`GET /discoveries` devuelve solo candidatos `active` del último lote aplicable, conserva `selectionRank`, permite filtrar por categoría y banda, incluye el resumen y faltante por categoría y no devuelve ocultos, aceptados ni expirados.
+
+### DISC-26 — Lote finito en interfaz
+
+La vista muestra el lote persistido y desplazarse hasta el final no crea búsquedas ni otro lote. Solo una actualización manual puede generar recomendaciones nuevas.
 
 ### FEED-01 — Más similar
 
@@ -393,6 +445,18 @@ Permite al canal ser candidato en actualizaciones futuras.
 ### FEED-07 — Categorías aisladas
 
 Feedback en Fotografía no altera indebidamente IA.
+
+### FEED-08 — Intensidad de señales
+
+Una acción explícita “Me interesa” pesa más que una apertura o marcado como visto aislado para futuras puntuaciones de la categoría.
+
+### FEED-09 — Umbral de sugerencia de canal
+
+Dos señales positivas sobre videos distintos del mismo canal y categoría habilitan la sugerencia de seguimiento; una sola señal no la habilita con la configuración predeterminada.
+
+### FEED-10 — Sin seguimiento implícito
+
+Al alcanzar el umbral solo aparece una sugerencia. `is_locally_followed` y la relación `accepted_discovery` no cambian hasta confirmar explícitamente.
 
 ## 11. PWA y operación
 
