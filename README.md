@@ -1,26 +1,29 @@
 # 📺 YouTube Curator
 
-**YouTube Curator** es una aplicación web personal diseñada para organizar tus suscripciones de YouTube y ver únicamente el contenido de los canales que tú decidas.
+**YouTube Curator** es una aplicación web personal diseñada para recuperar el control de tu consumo de video. El algoritmo oficial de YouTube prioriza la retención de los usuarios a toda costa, lo que satura tu pantalla de inicio y reduce tu libertad de elección.
 
 ---
 
-## 🎯 El Problema: El desorden del Feed de YouTube
+## 🎯 El Problema: La Pérdida de Control en YouTube
 
-Al utilizar la plataforma de YouTube directamente, resulta difícil seguir las publicaciones de tus canales de forma ordenada debido a:
-
-*   **Recomendaciones irrelevantes** de videos que no tienen relación con tus intereses reales.
-*   **Canales sugeridos que no conoces** y que aparecen constantemente en tu pantalla de inicio.
-*   **Videos mezclados sin categorizar**, lo que hace difícil separar las temáticas que quieres ver en cada momento (por ejemplo, desarrollo de software, música, salud o literatura).
+Cuando utilizas la interfaz oficial de YouTube, te enfrentas a un feed caótico diseñado para retener tu atención de manera constante mediante:
+*   **Recomendaciones invasivas e irrelevantes**: El feed se inunda de videos sugeridos sobre temáticas que no guardan relación con tus intereses reales del momento.
+*   **Canales desconocidos**: Aparecen constantemente videos y creadores de contenido de canales que no sabes cuáles son, desplazando los videos de las personas a las que decidiste seguir.
+*   **Contenido fuera de contexto**: Los videos de diferentes temáticas (ej. programación, filosofía, entretenimiento) se mezclan en una única lista infinita, impidiendo que puedas concentrarte en un área de estudio o entretenimiento específica.
+*   **Shorts y videos cortos**: Formatos cortos diseñados para un consumo rápido e impulsivo saturan tu feed, alejándote de videos formativos o de mayor duración (excluyendo aquellos menores a 3 minutos).
 
 ---
 
-## 💡 La Solución: Tus Canales, en tus propias Categorías
+## 💡 La Solución: Un Entorno Controlado y Guiado por tus Decisiones
 
-**YouTube Curator** te permite organizar tu biblioteca de canales seguidos de forma sencilla y estructurada en una interfaz minimalista:
-
-1.  **Categorización a tu medida**: Agrupa tus canales en las categorías que decidas (como *Desarrollo Web*, *Salud y Fitness*, o *Filosofía y letras*) para ver solo esa temática cuando quieras.
-2.  **Feeds cronológicos y limpios**: Accede a listas de videos ordenadas por fecha de publicación, compuestas exclusivamente por los canales que sigues.
-3.  **Espacio ordenado**: Marca videos como vistos de forma manual o al abrirlos, permitiéndote filtrarlos para ver siempre las novedades de tus creadores favoritos.
+**YouTube Curator** soluciona esto aislando tu biblioteca de la plataforma oficial y ofreciéndote un panel de control absoluto sobre tu feed:
+1.  **Feeds Puros y Cronológicos**: Accede a listas de videos ordenadas exclusivamente por fecha de publicación de los canales a los que has decidido seguir explícitamente. Sin sugerencias de la plataforma en tu página principal.
+2.  **Categorías Temáticas y Palabras Clave**: Agrupa tus canales favoritos en categorías (ej. *Tecnología*, *Filosofía y Letras*, *Salud*) y define palabras clave con polaridad y peso para puntuar los videos automáticamente.
+3.  **Descubrimiento bajo Demanda**: En lugar de recibir recomendaciones continuas e infinitas, tú decides cuándo buscar contenido nuevo en la sección de *Descubrimiento*. El sistema genera un lote controlado de exactamente **8 videos candidatos** por categoría, clasificados según su afinidad temática, divididos en tres bandas:
+    -   *Relacionados*: Canales de tu biblioteca con videos nuevos que aún no has seguido.
+    -   *Temas cercanos (Adyacentes)*: Videos buscados a partir de temas de exploración sugeridos por la propia aplicación o introducidos por ti.
+    -   *Para explorar*: Coincidencias generales con tus palabras clave positivas.
+4.  **Feedback Reversible y Exclusión Mutua**: Controla activamente el feed. Puedes ocultar videos, bloquear canales permanentemente o indicar si quieres "más como esto" o "menos como esto", todo de manera transparente y reversible desde el menú de Ajustes.
 
 ---
 
