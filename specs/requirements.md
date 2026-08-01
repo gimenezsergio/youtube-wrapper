@@ -12,6 +12,9 @@ La aplicación selecciona y organiza contenido. La reproducción ocurre en YouTu
 - **Canal seguido localmente**: canal aceptado desde descubrimiento, sin crear una suscripción en YouTube.
 - **Origen seguido**: video de un canal suscripto o seguido localmente; se muestra bajo la etiqueta de interfaz “Mis canales”.
 - **Descubrimiento**: video o canal encontrado por búsquedas configuradas, sin suscripción previa.
+- **Banda de descubrimiento**: grado de proximidad temática de una recomendación: `related`, `adjacent` o `exploratory`.
+- **Tema adyacente**: tema relacionado con una categoría que amplía su alcance sin reemplazar sus palabras clave principales. Puede ser manual o propuesto automáticamente, pero debe estar aprobado para generar búsquedas.
+- **Lote de descubrimiento**: conjunto finito de recomendaciones seleccionadas para una categoría durante una actualización manual.
 - **Categoría**: agrupación creada manualmente por el usuario.
 - **Clasificación**: asignación de uno o varios canales a categorías.
 - **Sugerencia de clasificación**: asignación automática pendiente de revisión.
@@ -168,21 +171,31 @@ El sistema debe abrir videos en YouTube y registrar su apertura.
 
 ### RF-11 — Descubrimiento por categoría
 
-El sistema debe generar candidatos de descubrimiento combinando canales semilla y palabras clave de la categoría.
+El sistema debe generar recomendaciones propias y explicables combinando palabras clave, canales semilla, temas adyacentes aprobados y señales locales del usuario. No debe presentarlas como recomendaciones propietarias ni como la portada personal de YouTube.
 
 **Criterios de aceptación**
 
 1. Solo debe ejecutarse al solicitar una actualización.
 2. Debe utilizar palabras clave configurables por categoría.
 3. Debe utilizar metadatos de los canales confirmados como señales temáticas.
-4. Debe excluir videos ya existentes como provenientes de suscripciones o como descubrimientos activos.
-5. Debe excluir canales y videos bloqueados.
-6. Cada candidato debe guardar puntuación y razones comprensibles.
-7. Los descubrimientos deben aparecer en una sección separada.
-8. Debe existir un presupuesto configurable de búsquedas por actualización y por categoría.
-9. Si se agota el presupuesto o la cuota externa, debe conservar resultados previos y mostrar un estado accionable.
-10. Un mismo video puede ser candidato en varias categorías con puntuación, razones y estado independientes.
-11. Debe considerar como señal los videos abiertos o marcados como vistos dentro de la categoría, con una ventana temporal configurable.
+4. Debe admitir temas adyacentes manuales y propuestas automáticas con estados `pending`, `approved` y `rejected`.
+5. Solo pueden formar parte de consultas externas señales trazables de la categoría: palabras clave, temas adyacentes aprobados, términos de canales semilla confirmados y señales locales dentro de su ventana. Una propuesta pendiente o rechazada no debe influir en consultas, candidatos ni puntuaciones.
+6. Cada candidato debe pertenecer, en el contexto de una categoría, a una banda: `related`, `adjacent` o `exploratory`.
+7. La mezcla predeterminada por categoría debe ser un lote finito de 8 recomendaciones: 5 `related`, 2 `adjacent` y 1 `exploratory`.
+8. Si una banda no tiene suficientes candidatos válidos, el sistema debe aplicar la matriz de fallback definida en el diseño; nunca debe usar candidatos exploratorios adicionales para cubrir faltantes de las bandas más cercanas y debe devolver menos de 8 antes que incluir un candidato por debajo del mínimo de relevancia temática.
+9. Debe excluir videos de canales suscriptos o seguidos localmente del conjunto de descubrimiento y evitar duplicados por video.
+10. Debe excluir canales bloqueados, videos ocultos y candidatos incompatibles con palabras clave negativas.
+11. Cada candidato debe guardar puntuación, banda, posición en el lote y entre 1 y 3 razones comprensibles.
+12. La selección final debe favorecer diversidad y limitar de forma predeterminada a 2 los videos del mismo canal por categoría y actualización.
+13. Los descubrimientos deben aparecer en una sección separada del feed cronológico; no debe existir carga infinita automática.
+14. Debe existir un presupuesto configurable de búsquedas por actualización y por categoría, con valores iniciales conservadores de 10 y 2 respectivamente.
+15. El presupuesto debe repartirse de forma justa: todas las categorías elegibles reciben una primera oportunidad antes de que una categoría consuma una segunda búsqueda.
+16. Si se agota el presupuesto o la cuota externa, debe conservar resultados previos y mostrar un estado accionable.
+17. Un mismo video puede ser candidato en varias categorías con banda, puntuación, razones y estado independientes.
+18. Debe considerar como señal los videos abiertos o marcados como vistos dentro de la categoría, con una ventana temporal configurable.
+19. La apertura o el estado visto son señales positivas débiles; el feedback explícito debe tener mayor peso.
+20. La popularidad global o el número de visualizaciones no deben ser señales obligatorias ni dominantes en el MVP.
+21. El sistema debe poder funcionar con coincidencia de términos sin depender de un modelo semántico externo.
 
 ### RF-12 — Feedback de descubrimiento
 
@@ -196,6 +209,11 @@ El usuario debe poder controlar los candidatos.
 4. Las acciones deben afectar futuras puntuaciones.
 5. Debe poder revertirse una ocultación o bloqueo desde configuración.
 6. Sus videos conocidos deben pasar al origen `followed` y sus videos nuevos deben obtenerse en futuras actualizaciones.
+7. En la interfaz, `more_like_this` y `less_like_this` deben presentarse como “Me interesa” y “No me interesa”.
+8. Salvo el bloqueo de canal, el feedback debe afectar primero a la categoría desde la cual se emitió y no contaminar indebidamente otras categorías.
+9. La aplicación puede sugerir seguir un canal cuando existan señales positivas sobre al menos 2 videos distintos de ese canal dentro de la misma categoría y ventana temporal configurable.
+10. Una sugerencia de canal nunca debe activar seguimiento local sin confirmación explícita.
+11. El usuario debe poder abrir o aceptar un canal desde cualquier recomendación sin esperar a que se alcance el umbral de sugerencia.
 
 ### RF-13 — PWA y responsive
 
@@ -217,7 +235,7 @@ El sistema debe mostrar configuración e información operativa mínima.
 
 1. Debe mostrar identidad conectada, última actualización y consumo/errores conocidos de API.
 2. Debe permitir reautorizar Google.
-3. Debe permitir exportar categorías, asignaciones, palabras clave, estados y bloqueos en JSON.
+3. Debe permitir exportar categorías, asignaciones, palabras clave, temas adyacentes, estados, feedback y bloqueos en JSON.
 4. Los logs no deben contener tokens, secretos ni respuestas completas sensibles.
 
 ## 5. Requisitos no funcionales
@@ -268,6 +286,8 @@ El sistema debe mostrar configuración e información operativa mínima.
 - Comentarios, publicación o modificación del canal.
 - Suscribirse o desuscribirse en YouTube desde la aplicación.
 - Recomendaciones propietarias de YouTube.
+- Importación del feed de inicio, del historial de reproducción o de la lista “Ver más tarde” de YouTube.
+- Uso del antiguo mecanismo `relatedToVideoId`, retirado de la YouTube Data API.
 - Sistema multiusuario.
 - Aplicaciones móviles nativas.
 

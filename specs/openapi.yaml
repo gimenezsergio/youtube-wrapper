@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: YouTube Curator API
-  version: 0.1.0
+  version: 0.2.0
   description: API privada para la aplicación personal YouTube Curator.
 servers:
   - url: /api/v1
@@ -201,6 +201,96 @@ paths:
           description: Categoría eliminada.
         "404":
           $ref: "#/components/responses/NotFound"
+  /categories/{categoryId}/exploration-topics:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+    get:
+      tags: [Categories, Discovery]
+      summary: Listar temas adyacentes de una categoría
+      operationId: listExplorationTopics
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, pending, approved, rejected]
+            default: all
+      responses:
+        "200":
+          description: Temas manuales y propuestos automáticamente.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExplorationTopic"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Categories, Discovery]
+      summary: Crear y aprobar un tema adyacente manual
+      operationId: createExplorationTopic
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExplorationTopicInput"
+      responses:
+        "201":
+          description: Tema manual creado con estado `approved`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExplorationTopic"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+  /categories/{categoryId}/exploration-topics/{topicId}:
+    parameters:
+      - $ref: "#/components/parameters/CategoryId"
+      - $ref: "#/components/parameters/ExplorationTopicId"
+    patch:
+      tags: [Categories, Discovery]
+      summary: Aprobar, rechazar o reactivar un tema adyacente
+      operationId: updateExplorationTopic
+      parameters:
+        - $ref: "#/components/parameters/CsrfHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [pending, approved, rejected]
+                weight:
+                  type: number
+                  minimum: 0
+                  maximum: 10
+      responses:
+        "200":
+          description: Tema actualizado.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExplorationTopic"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /channels:
     get:
       tags: [Channels]
@@ -342,7 +432,7 @@ paths:
           schema:
             type: string
             enum: [all, followed, discovery]
-            default: all
+            default: followed
         - name: view
           in: query
           schema:
@@ -491,6 +581,33 @@ paths:
                     type: integer
         "422":
           $ref: "#/components/responses/ValidationError"
+  /discoveries:
+    get:
+      tags: [Discovery]
+      summary: Listar el lote actual de descubrimiento
+      operationId: listDiscoveries
+      parameters:
+        - name: categoryId
+          in: query
+          schema:
+            type: integer
+        - name: band
+          in: query
+          schema:
+            type: string
+            enum: [all, related, adjacent, exploratory]
+            default: all
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Candidatos activos del último lote aplicable, ordenados de forma estable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryPage"
+        "400":
+          $ref: "#/components/responses/BadRequest"
   /discoveries/{videoId}/feedback:
     post:
       tags: [Discovery]
@@ -528,6 +645,24 @@ paths:
                 properties:
                   applied:
                     type: boolean
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /discoveries/{videoId}/hidden:
+    delete:
+      tags: [Discovery]
+      summary: Restaurar un video oculto en una categoría
+      operationId: restoreHiddenDiscovery
+      parameters:
+        - $ref: "#/components/parameters/VideoId"
+        - name: categoryId
+          in: query
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/CsrfHeader"
+      responses:
+        "204":
+          description: Ocultación revertida. El video podrá participar en actualizaciones futuras.
         "404":
           $ref: "#/components/responses/NotFound"
   /refresh-runs:
@@ -615,6 +750,18 @@ paths:
               schema:
                 type: object
                 additionalProperties: true
+  /settings/discovery-exclusions:
+    get:
+      tags: [Settings, Discovery]
+      summary: Listar videos ocultos y canales bloqueados
+      operationId: listDiscoveryExclusions
+      responses:
+        "200":
+          description: Exclusiones reversibles del motor de descubrimiento.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiscoveryExclusions"
   /settings/status:
     get:
       tags: [Settings]
@@ -644,12 +791,30 @@ paths:
                       - type: "null"
                   discoveryBudget:
                     type: object
-                    required: [maxPerRefresh, maxPerCategory]
+                    required: [maxPerRefresh, maxPerCategory, batchSize, bandTargets]
                     properties:
                       maxPerRefresh:
                         type: integer
+                        default: 10
                       maxPerCategory:
                         type: integer
+                        default: 2
+                      batchSize:
+                        type: integer
+                        default: 8
+                      bandTargets:
+                        type: object
+                        required: [related, adjacent, exploratory]
+                        properties:
+                          related:
+                            type: integer
+                            default: 5
+                          adjacent:
+                            type: integer
+                            default: 2
+                          exploratory:
+                            type: integer
+                            default: 1
 components:
   securitySchemes:
     sessionCookie:
@@ -677,6 +842,12 @@ components:
         type: integer
     VideoId:
       name: videoId
+      in: path
+      required: true
+      schema:
+        type: integer
+    ExplorationTopicId:
+      name: topicId
       in: path
       required: true
       schema:
@@ -780,6 +951,44 @@ components:
           minimum: 0
           maximum: 10
           default: 1
+    ExplorationTopicInput:
+      type: object
+      required: [term]
+      properties:
+        term:
+          type: string
+          minLength: 1
+          maxLength: 120
+        weight:
+          type: number
+          minimum: 0
+          maximum: 10
+          default: 1
+    ExplorationTopic:
+      allOf:
+        - $ref: "#/components/schemas/ExplorationTopicInput"
+        - type: object
+          required: [id, categoryId, source, status, createdAt, updatedAt]
+          properties:
+            id:
+              type: integer
+            categoryId:
+              type: integer
+            source:
+              type: string
+              enum: [manual, automatic]
+            status:
+              type: string
+              enum: [pending, approved, rejected]
+            rationale:
+              type: [string, "null"]
+              maxLength: 500
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
     Channel:
       type: object
       required:
@@ -891,19 +1100,124 @@ components:
             $ref: "#/components/schemas/Video"
     DiscoveryInfo:
       type: object
-      required: [categoryId, score, reasons]
+      required: [categoryId, band, label, score, selectionRank, reasons]
       properties:
         categoryId:
           type: integer
+        band:
+          type: string
+          enum: [related, adjacent, exploratory]
+        label:
+          type: string
+          enum: [Relacionado, Tema cercano, Para explorar]
         score:
           type: number
           minimum: 0
           maximum: 100
+        selectionRank:
+          type: integer
+          minimum: 1
         reasons:
           type: array
           minItems: 1
+          maxItems: 3
           items:
             type: string
+    DiscoveryRecommendation:
+      type: object
+      required: [video, context]
+      properties:
+        video:
+          $ref: "#/components/schemas/Video"
+        context:
+          $ref: "#/components/schemas/DiscoveryInfo"
+    DiscoveryPage:
+      type: object
+      required: [items, batches]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiscoveryRecommendation"
+        batches:
+          type: array
+          description: Resumen del lote más reciente para cada categoría incluida en la respuesta.
+          items:
+            $ref: "#/components/schemas/DiscoveryBatchSummary"
+        nextCursor:
+          type: [string, "null"]
+    DiscoveryBatchSummary:
+      type: object
+      required:
+        - categoryId
+        - refreshRunId
+        - generatedAt
+        - targetTotal
+        - selectedTotal
+        - targetByBand
+        - selectedByBand
+      properties:
+        categoryId:
+          type: integer
+        refreshRunId:
+          type: integer
+        generatedAt:
+          type: string
+          format: date-time
+        targetTotal:
+          type: integer
+          default: 8
+        selectedTotal:
+          type: integer
+          minimum: 0
+        targetByBand:
+          $ref: "#/components/schemas/DiscoveryBandCounts"
+        selectedByBand:
+          $ref: "#/components/schemas/DiscoveryBandCounts"
+        shortfallReason:
+          type: [string, "null"]
+          enum:
+            - insufficient_candidates
+            - insufficient_signals
+            - no_approved_topics
+            - budget_exhausted
+            - quota_exhausted
+            - external_error
+            - null
+    DiscoveryBandCounts:
+      type: object
+      required: [related, adjacent, exploratory]
+      properties:
+        related:
+          type: integer
+          minimum: 0
+        adjacent:
+          type: integer
+          minimum: 0
+        exploratory:
+          type: integer
+          minimum: 0
+    DiscoveryExclusions:
+      type: object
+      required: [hiddenVideos, blockedChannels]
+      properties:
+        hiddenVideos:
+          type: array
+          items:
+            type: object
+            required: [video, categoryId, hiddenAt]
+            properties:
+              video:
+                $ref: "#/components/schemas/Video"
+              categoryId:
+                type: integer
+              hiddenAt:
+                type: string
+                format: date-time
+        blockedChannels:
+          type: array
+          items:
+            $ref: "#/components/schemas/Channel"
     VideoUserState:
       type: object
       required: [videoId, watched]
