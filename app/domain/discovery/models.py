@@ -45,7 +45,8 @@ class DiscoveryCandidateDomain:
         score: float = 0.0,
         band: Band = Band.RELATED,
         reasons: Optional[List[str]] = None,
-        selection_rank: Optional[int] = None
+        selection_rank: Optional[int] = None,
+        category_id: int = 0
     ):
         self.video_id = video_id
         self.youtube_video_id = youtube_video_id
@@ -61,3 +62,4 @@ class DiscoveryCandidateDomain:
         self.band = band
         self.reasons = reasons or []
         self.selection_rank = selection_rank
+        self.category_id = category_id
