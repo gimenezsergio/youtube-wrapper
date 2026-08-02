@@ -5,9 +5,8 @@ import pytest
 from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
 from app.services.subscription_service import SubscriptionService
-
-
 from tests.fakes.youtube_gateway import FakeYouTubeGateway
+
 
 @pytest.fixture
 def setup_mock_credentials(app):

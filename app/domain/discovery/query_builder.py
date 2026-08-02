@@ -1,6 +1,8 @@
-from typing import List, Dict, Any, Tuple
+from typing import Any, Dict, List, Tuple
+
 from app.domain.discovery.models import Band
 from app.domain.discovery.signals import CategorySignals
+
 
 def clean_term_for_search(term: str) -> str:
     """Remueve caracteres problemáticos de búsqueda de YouTube, manteniendo letras y números."""
@@ -15,7 +17,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
     """
     queries = []
     negative_part = ""
-    
+
     # Construir exclusiones negativas (ej: "-noterm1 -noterm2")
     if signals.negative_keywords:
         neg_terms = []
@@ -41,7 +43,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
                 current_len += len(cleaned) + 1
             else:
                 break
-        
+
         if terms_to_include:
             q_str = " ".join(terms_to_include) + negative_part
             queries.append({
@@ -50,7 +52,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
                 "source": "keywords",
                 "explanation": f"Basado en palabras clave de la categoría: {', '.join(terms_to_include[:3])}"
             })
-            
+
     # Si aún no tenemos consulta, intentar con títulos de canales semilla o videos vistos
     if not queries and (signals.seed_channel_titles or signals.positive_video_titles):
         seeds = signals.seed_channel_titles + signals.positive_video_titles
@@ -71,7 +73,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
     if len(queries) < max_queries and signals.approved_exploration_topics and pos_keywords:
         # Tomar la palabra clave con más peso como ancla
         anchor = clean_term_for_search(pos_keywords[0][0])
-        
+
         # Tomar temas aprobados
         topics = sorted(signals.approved_exploration_topics, key=lambda x: x[1], reverse=True)
         for topic_term, topic_weight in topics:
@@ -101,10 +103,10 @@ def schedule_queries_round_robin(
     scheduled = []
     # Copia de las consultas por categoría
     queries_pool = {cat_id: list(q_list[:max_per_category]) for cat_id, q_list in category_queries.items()}
-    
+
     # Lista de categorías ordenadas para round-robin
     cat_ids = sorted(list(queries_pool.keys()))
-    
+
     any_added = True
     while len(scheduled) < global_budget and any_added:
         any_added = False
@@ -115,5 +117,5 @@ def schedule_queries_round_robin(
                 q = queries_pool[cat_id].pop(0)
                 scheduled.append((cat_id, q))
                 any_added = True
-                
+
     return scheduled

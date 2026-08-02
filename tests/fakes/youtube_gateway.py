@@ -99,11 +99,40 @@ class FakeYouTubeGateway:
     def fetch_channels_details(self, access_token, channel_ids):
         return [self.channels_details[cid] for cid in channel_ids if cid in self.channels_details]
 
+    def get_channels_details(self, access_token, channel_ids):
+        res = []
+        for cid in channel_ids:
+            if cid in self.channels_details:
+                res.append(self.channels_details[cid])
+            else:
+                res.append({
+                    "youtube_channel_id": cid,
+                    "title": f"Canal {cid}",
+                    "description": "Canal descripcion",
+                    "thumbnail_url": "thumb.jpg",
+                    "uploads_playlist_id": f"UU_{cid}"
+                })
+        return res
+
     def fetch_playlist_items(self, access_token, playlist_id, limit=50, page_token=None):
         return self.playlist_items.get(playlist_id, {"items": [], "nextPageToken": None})
 
     def fetch_videos_details(self, access_token, video_ids):
         return [d for d in self.video_details if d["youtube_video_id"] in video_ids]
+
+    def get_videos_details(self, access_token, video_ids):
+        res = []
+        for vid in video_ids:
+            found = next((d for d in self.video_details if d["youtube_video_id"] == vid), None)
+            if found:
+                res.append(found)
+            else:
+                res.append({
+                    "youtube_video_id": vid,
+                    "duration_seconds": 600,
+                    "content_type": "video"
+                })
+        return res
 
     def search_videos(self, access_token, q, published_after=None, limit=25, region_code='AR', relevance_language='es'):
         self.search_calls.append({
@@ -113,5 +142,4 @@ class FakeYouTubeGateway:
             "region_code": region_code,
             "relevance_language": relevance_language
         })
-        # Buscar en respuestas simuladas, por defecto retorna vacío si no hay mock
         return self.search_responses.get(q, self.search_responses.get("default", []))

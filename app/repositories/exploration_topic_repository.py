@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 from app.domain.discovery.normalization import normalize_term
+
 
 class ExplorationTopicRepository:
     @staticmethod
@@ -31,7 +33,7 @@ class ExplorationTopicRepository:
         """Crea un tema de exploración manual y lo aprueba de forma predeterminada."""
         now = datetime.now(timezone.utc).isoformat()
         norm = normalize_term(term)
-        
+
         # Verificar si ya existe
         existing = ExplorationTopicRepository.get_by_category_and_term(db, category_id, term)
         if existing:
@@ -73,7 +75,7 @@ class ExplorationTopicRepository:
         """Actualiza el estado de un tema de exploración (approved, pending, rejected)."""
         if status not in ('approved', 'pending', 'rejected'):
             raise ValueError(f"Estado de tema inválido: {status}")
-        
+
         now = datetime.now(timezone.utc).isoformat()
         db.execute("""
             UPDATE category_exploration_topics

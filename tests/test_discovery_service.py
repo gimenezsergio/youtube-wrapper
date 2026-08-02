@@ -1,14 +1,9 @@
-import pytest
-import json
-from unittest.mock import MagicMock
+from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
-from app.repositories.refresh_run_repository import RefreshRunRepository
 from app.repositories.discovery_repository import DiscoveryRepository
 from app.services.discovery_service import DiscoveryService
-from app.domain.discovery.models import Band
 from tests.fakes.youtube_gateway import FakeYouTubeGateway
 
-from app.auth.encryption import encrypt_token
 
 def test_discovery_service_e2e_flow(app):
     """Prueba el flujo e2e de DiscoveryService con un gateway fake determinista."""
@@ -35,10 +30,10 @@ def test_discovery_service_e2e_flow(app):
             "youtube_channel_id": "UC_FOTO_2"
         }
     ]
-    
+
     with app.app_context():
         db = get_db_connection(app.config["DATABASE_PATH"])
-        
+
         # 1. Configurar credenciales ficticias de YouTube
         enc_access = encrypt_token("mock-access")
         enc_refresh = encrypt_token("mock-refresh")
@@ -55,26 +50,26 @@ def test_discovery_service_e2e_flow(app):
             INSERT INTO category_keywords (category_id, term, polarity, weight)
             VALUES (1, 'fotografia', 'positive', 5.0)
         """)
-        
+
         # Insertar refresh run para FK
         db.execute("""
             INSERT INTO refresh_runs (id, status, requested_stages_json, current_stage, requested_at, counters_json, errors_json)
             VALUES (1, 'running', '["discovery"]', 'discovery', 'now', '{}', '{}')
         """)
         db.commit()
-        
+
         # 2. Instanciar servicio de descubrimiento e invocarlo
         disc_service = DiscoveryService(gateway=fake_gateway)
         stats = disc_service.run_discovery(db, run_id=1)
-        
+
         # 3. Validaciones de resultados
         assert stats["searches_executed"] > 0
         assert stats["categories"][1]["selected"] == 2 # Se encontraron y seleccionaron 2 videos
-        
+
         # Verificar candidatos en base de datos
         recs, batches, _ = DiscoveryRepository.get_active_batch_recommendations(db, category_id=1)
         assert len(recs) == 2
         assert recs[0]["video"]["youtubeVideoId"] == "vid_photo_1"
         assert recs[1]["video"]["youtubeVideoId"] == "vid_photo_2"
-        
+
         db.close()

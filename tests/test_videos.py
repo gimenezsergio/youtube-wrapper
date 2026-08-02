@@ -5,8 +5,6 @@ import pytest
 from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
 from app.services.video_service import VideoService
-
-
 from tests.fakes.youtube_gateway import FakeYouTubeGateway
 
 

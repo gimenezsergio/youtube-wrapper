@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import sqlite3
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 
@@ -115,17 +115,17 @@ def test_migration_0003_upgrade(tmp_path):
     # 1. Crear el esquema antiguo (0001 + 0002)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    
+
     # Crear la tabla de control de migraciones e insertar 0001 y 0002
     conn.execute("CREATE TABLE migrations_run (filename TEXT PRIMARY KEY, run_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
-    
+
     migrations_dir = Path(__file__).resolve().parent.parent / "app" / "migrations"
-    
+
     with open(migrations_dir / "0001_initial_schema.sql", "r", encoding="utf-8") as f:
         conn.executescript(f.read())
     with open(migrations_dir / "0002_credentials.sql", "r", encoding="utf-8") as f:
         conn.executescript(f.read())
-        
+
     conn.execute("INSERT INTO migrations_run (filename) VALUES ('0001_initial_schema.sql')")
     conn.execute("INSERT INTO migrations_run (filename) VALUES ('0002_credentials.sql')")
     conn.commit()
@@ -160,7 +160,7 @@ def test_migration_0003_upgrade(tmp_path):
     # 4. Verificar integridad de datos migrados
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
-    
+
     # Comprobar que existe la tabla category_exploration_topics
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='category_exploration_topics'")
     assert cursor.fetchone() is not None

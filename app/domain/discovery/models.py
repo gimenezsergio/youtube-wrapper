@@ -1,6 +1,7 @@
 from enum import Enum
 from typing import List, Optional
 
+
 class Band(Enum):
     RELATED = "related"
     ADJACENT = "adjacent"

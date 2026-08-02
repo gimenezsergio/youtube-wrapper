@@ -1,11 +1,12 @@
 import re
-from typing import List, Dict, Any, Optional
-from app.repositories.exploration_topic_repository import ExplorationTopicRepository
+from typing import Any, Dict, List, Optional
+
 from app.domain.discovery.normalization import normalize_term
+from app.repositories.exploration_topic_repository import ExplorationTopicRepository
 
 SPANISH_STOPWORDS = {
-    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al", "y", "o", "u", "e", "en", "para", "por", 
-    "con", "sin", "sobre", "que", "como", "tutorial", "video", "canal", "oficial", "para", "pero", "este", "esta", "sino"
+    "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "al", "y", "o", "u", "e", "en", "para", "por",
+    "con", "sin", "sobre", "que", "como", "tutorial", "video", "canal", "oficial", "pero", "este", "esta", "sino"
 }
 
 class ExplorationTopicService:
@@ -62,7 +63,7 @@ class ExplorationTopicService:
         # 3. Obtener exclusiones (palabras clave existentes y temas existentes)
         cursor = db.execute("SELECT term FROM category_keywords WHERE category_id = ?", (category_id,))
         excl_terms = {normalize_term(row["term"]) for row in cursor.fetchall()}
-        
+
         existing_topics = ExplorationTopicRepository.list_by_category(db, category_id)
         for t in existing_topics:
             excl_terms.add(t["normalized_term"])
@@ -84,13 +85,13 @@ class ExplorationTopicService:
         for word, freq in top_words:
             # Proponer
             res = ExplorationTopicRepository.insert_automatic_pending(
-                db, 
-                category_id=category_id, 
-                term=word.capitalize(), 
+                db,
+                category_id=category_id,
+                term=word.capitalize(),
                 weight=1.0,
                 rationale=f"Propuesto automáticamente por aparecer {freq} veces en títulos y canales de la categoría."
             )
             if res is not None:
                 inserted_count += 1
-                
+
         return inserted_count

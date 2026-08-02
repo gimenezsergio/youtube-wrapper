@@ -1,7 +1,9 @@
 import time
 from typing import List
+
 import requests
 from flask import current_app
+
 
 class YouTubeAPIError(Exception):
     """Clase base para errores de la API de YouTube."""
@@ -332,7 +334,7 @@ class YouTubeGateway:
         for attempt in range(max_attempts):
             try:
                 response = requests.request(method, url, params=params, headers=headers, data=data, timeout=10)
-                
+
                 # Clasificar errores
                 if response.status_code == 200:
                     return response
@@ -352,13 +354,13 @@ class YouTubeGateway:
                     raise YouTubeTransientError(f"Servidor de YouTube reportó error {response.status_code}.")
                 else:
                     raise YouTubeAPIError(f"Error inesperado de YouTube: {response.text}")
-                    
+
             except (requests.Timeout, requests.ConnectionError) as e:
                 if attempt < max_attempts - 1:
                     time.sleep((attempt + 1) * 1.5)
                     continue
                 raise YouTubeTransientError(f"Fallo transitorio de red: {e}")
-                
+
         raise YouTubeTransientError("Fallo tras reintentos.")
 
     def search_videos(
@@ -391,7 +393,7 @@ class YouTubeGateway:
 
         current_app.logger.info(f"YouTube API Call: search.list con consulta '{q}'")
         response = self._request_with_retry("GET", url, params=params, headers=headers)
-        
+
         try:
             data = response.json()
         except Exception:
@@ -407,7 +409,7 @@ class YouTubeGateway:
                 published_at = snippet["publishedAt"]
                 channel_title = snippet["channelTitle"]
                 youtube_channel_id = snippet["channelId"]
-                
+
                 # Obtener thumbnail
                 thumbnails = snippet.get("thumbnails", {})
                 thumbnail_url = (
@@ -415,7 +417,7 @@ class YouTubeGateway:
                     thumbnails.get("medium", {}).get("url") or
                     thumbnails.get("default", {}).get("url")
                 )
-                
+
                 items.append({
                     "youtube_video_id": video_id,
                     "title": title,

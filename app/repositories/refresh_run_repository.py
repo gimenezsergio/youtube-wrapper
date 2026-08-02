@@ -1,6 +1,7 @@
 import json
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
 
 class RefreshRunRepository:
     @staticmethod
@@ -10,7 +11,7 @@ class RefreshRunRepository:
         stages_json = json.dumps(requested_stages)
         counters_json = json.dumps({})
         errors_json = json.dumps({})
-        
+
         cursor = db.execute("""
             INSERT INTO refresh_runs (
                 status, requested_stages_json, current_stage, requested_at,
@@ -64,7 +65,7 @@ class RefreshRunRepository:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
         lease_expires = (now + timedelta(seconds=lease_duration_seconds)).isoformat()
-        
+
         # Buscar candidato eligible
         # 1. pending
         # 2. running pero lease expirado
@@ -78,10 +79,10 @@ class RefreshRunRepository:
         row = cursor.fetchone()
         if not row:
             return None
-            
+
         run_id = row["id"]
         status = row["status"]
-        
+
         if status == 'pending':
             # Reclamar pendiente
             db.execute("""
@@ -96,7 +97,7 @@ class RefreshRunRepository:
                 SET status = 'running', worker_id = ?, heartbeat_at = ?, lease_expires_at = ?
                 WHERE id = ? AND status = 'running' AND lease_expires_at = ?
             """, (worker_id, now_iso, lease_expires, run_id, row["lease_expires_at"]))
-            
+
         # Retornar el registro actualizado si se pudo reclamar
         return RefreshRunRepository.get_by_id(db, run_id)
 
@@ -106,7 +107,7 @@ class RefreshRunRepository:
         now = datetime.now(timezone.utc)
         now_iso = now.isoformat()
         lease_expires = (now + timedelta(seconds=lease_duration_seconds)).isoformat()
-        
+
         cursor = db.execute("""
             UPDATE refresh_runs
             SET heartbeat_at = ?, lease_expires_at = ?

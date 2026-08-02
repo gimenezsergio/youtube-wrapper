@@ -128,7 +128,7 @@ def set_channel_blocked(channel_id):
     db = get_db()
     # Verificar si el canal existe
     db.execute("UPDATE channels SET is_blocked = ? WHERE id = ?", (int(blocked), channel_id))
-    
+
     if blocked:
         # Retirar todos sus candidatos activos de descubrimiento si se bloquea
         db.execute("""
@@ -137,7 +137,7 @@ def set_channel_blocked(channel_id):
             WHERE video_id IN (SELECT id FROM videos WHERE channel_id = ?)
               AND status = 'active'
         """, (channel_id,))
-        
+
     db.commit()
 
     # Retornar el canal actualizado

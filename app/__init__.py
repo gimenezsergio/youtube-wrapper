@@ -79,9 +79,9 @@ def create_app(config_name=None):
     # Registrar Blueprints
     from app.api.categories import categories_bp
     from app.api.channels import channels_bp
+    from app.api.discovery import discovery_bp
     from app.api.health import health_bp
     from app.api.videos import videos_bp
-    from app.api.discovery import discovery_bp
     from app.auth.routes import auth_bp
 
     # Registramos con el prefijo /api/v1 como especifica openapi.yaml

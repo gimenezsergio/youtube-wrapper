@@ -1,8 +1,10 @@
 import json
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any, Set, Tuple, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Set, Tuple
+
 from app.domain.discovery.models import Band, DiscoveryCandidateDomain
 from app.domain.discovery.signals import CategorySignals
+
 
 class DiscoveryRepository:
     @staticmethod
@@ -97,10 +99,10 @@ class DiscoveryRepository:
             FROM discovery_feedback
             WHERE category_id = ? AND created_at >= ?
         """, (category_id, limit_date))
-        
+
         negative_video_ids = set()
         negative_channel_ids = set()
-        
+
         for row in cursor.fetchall():
             act = row["action"]
             vid = row["video_id"]
@@ -121,7 +123,7 @@ class DiscoveryRepository:
 
         # 6. Bloqueos globales y ocultaciones
         blocked_channel_ids = DiscoveryRepository.get_blocked_channels(db)
-        
+
         # Ocultos en la categoría
         hidden_vids_yt = DiscoveryRepository.get_hidden_videos(db, category_id)
         # Convertir youtube_video_ids a IDs de base de datos locales
@@ -130,6 +132,14 @@ class DiscoveryRepository:
             placeholders = ",".join("?" for _ in hidden_vids_yt)
             v_cursor = db.execute(f"SELECT id FROM videos WHERE youtube_video_id IN ({placeholders})", list(hidden_vids_yt))
             hidden_video_ids = {row["id"] for row in v_cursor.fetchall()}
+
+        # Canales seguidos globalmente
+        cursor_followed = db.execute("SELECT id FROM channels WHERE is_subscribed = 1 OR is_locally_followed = 1")
+        followed_channel_ids = {row["id"] for row in cursor_followed.fetchall()}
+
+        # Videos ya vistos
+        cursor_watched = db.execute("SELECT video_id FROM video_user_state WHERE watched = 1")
+        watched_video_ids = {row["video_id"] for row in cursor_watched.fetchall()}
 
         return CategorySignals(
             category_id=category_id,
@@ -144,7 +154,9 @@ class DiscoveryRepository:
             negative_video_ids=negative_video_ids,
             negative_channel_ids=negative_channel_ids,
             blocked_channel_ids=blocked_channel_ids,
-            hidden_video_ids=hidden_video_ids
+            hidden_video_ids=hidden_video_ids,
+            followed_channel_ids=followed_channel_ids,
+            watched_video_ids=watched_video_ids
         )
 
     @staticmethod
@@ -152,19 +164,20 @@ class DiscoveryRepository:
         """Cuenta cuántos videos distintos de un canal han tenido interacción positiva en la categoría."""
         now = datetime.now(timezone.utc)
         limit_date = (now - timedelta(days=signal_window_days)).isoformat()
-        
+
         # Interacciones positivas = abierto (opened_at) o visto (watched = 1) o feedback 'more_like_this'
         cursor = db.execute("""
             SELECT COUNT(DISTINCT v.id) as cant
             FROM videos v
             LEFT JOIN video_user_state vus ON v.id = vus.video_id
+            LEFT JOIN channel_categories cc ON v.channel_id = cc.channel_id AND cc.category_id = ?
             LEFT JOIN discovery_feedback df ON v.id = df.video_id AND df.category_id = ? AND df.action = 'more_like_this'
             WHERE v.channel_id = ?
               AND (
-                (vus.opened_at >= ? OR vus.watched = 1)
+                (cc.category_id IS NOT NULL AND (vus.opened_at >= ? OR vus.watched = 1))
                 OR (df.created_at >= ?)
               )
-        """, (category_id, channel_id, limit_date, limit_date))
+        """, (category_id, category_id, channel_id, limit_date, limit_date))
         row = cursor.fetchone()
         return row["cant"] if row else 0
 
@@ -175,7 +188,7 @@ class DiscoveryRepository:
         Retorna la tupla (channel_id, video_id) locales de la base de datos.
         """
         now = datetime.now(timezone.utc).isoformat()
-        
+
         # 1. Upsert Canal
         c_cursor = db.execute("SELECT id FROM channels WHERE youtube_channel_id = ?", (channel_data["youtube_channel_id"],))
         c_row = c_cursor.fetchone()
@@ -215,7 +228,7 @@ class DiscoveryRepository:
                   video_data["published_at"], video_data.get("duration_seconds"), video_data.get("thumbnail_url"),
                   video_data.get("content_type", "video"), now, now))
             video_id = v_ins.lastrowid
-            
+
         return channel_id, video_id
 
     @staticmethod
@@ -223,20 +236,20 @@ class DiscoveryRepository:
         """Persiste un candidato en la tabla discovery_candidates."""
         now = datetime.now(timezone.utc).isoformat()
         reasons_str = json.dumps(candidate.reasons)
-        
+
         # Verificar si ya existe en esta categoría
         cursor = db.execute("""
             SELECT status, first_seen_at FROM discovery_candidates
             WHERE video_id = ? AND category_id = ?
         """, (candidate.video_id, candidate.category_id))
         row = cursor.fetchone()
-        
+
         if row:
             # Mantener status si es hidden o accepted para no sobrescribir feedback
             status = row["status"]
             if status not in ('hidden', 'accepted'):
                 status = 'active'
-                
+
             db.execute("""
                 UPDATE discovery_candidates
                 SET score = ?, band = ?, reasons_json = ?, status = ?,
@@ -269,10 +282,10 @@ class DiscoveryRepository:
     def save_discovery_batch(db, run_id: int, category_id: int, counts_dict: dict, shortfall_reason: Optional[str] = None):
         """Guarda o actualiza el resumen del lote (discovery_batches)."""
         now = datetime.now(timezone.utc).isoformat()
-        
+
         target_total = counts_dict["targetByBand"]["related"] + counts_dict["targetByBand"]["adjacent"] + counts_dict["targetByBand"]["exploratory"]
         selected_total = counts_dict["selectedByBand"]["related"] + counts_dict["selectedByBand"]["adjacent"] + counts_dict["selectedByBand"]["exploratory"]
-        
+
         target_by_band_json = json.dumps(counts_dict["targetByBand"])
         selected_by_band_json = json.dumps(counts_dict["selectedByBand"])
 
@@ -288,13 +301,13 @@ class DiscoveryRepository:
     def save_feedback(db, video_id: Optional[int], channel_id: Optional[int], category_id: int, action: str) -> int:
         """Registra una acción de feedback y aplica los efectos colaterales correspondientes."""
         now = datetime.now(timezone.utc).isoformat()
-        
+
         # Insertar registro de feedback
         cursor = db.execute("""
             INSERT INTO discovery_feedback (video_id, channel_id, category_id, action, created_at)
             VALUES (?, ?, ?, ?, ?)
         """, (video_id, channel_id, category_id, action, now))
-        
+
         # Efectos colaterales inmediatos
         if action == "block_channel" and channel_id:
             # 1. Bloqueo global: marcar is_blocked = 1 en channels
@@ -306,7 +319,7 @@ class DiscoveryRepository:
                 WHERE video_id IN (SELECT id FROM videos WHERE channel_id = ?)
                   AND status = 'active'
             """, (channel_id,))
-            
+
         elif action == "hide_video" and video_id:
             # Ocultar video en esta categoría
             db.execute("""
@@ -314,7 +327,7 @@ class DiscoveryRepository:
                 SET status = 'hidden'
                 WHERE video_id = ? AND category_id = ?
             """, (video_id, category_id))
-            
+
         elif action == "accept_channel" and channel_id:
             # 1. Seguir localmente el canal
             db.execute("UPDATE channels SET is_locally_followed = 1 WHERE id = ?", (channel_id,))
@@ -347,26 +360,29 @@ class DiscoveryRepository:
         """
         where_parts = ["dc.status = 'active'", "ch.is_blocked = 0"]
         params = []
-        
+
         if category_id:
             where_parts.append("dc.category_id = ?")
             params.append(category_id)
-            
+
         if band and band != "all":
             where_parts.append("dc.band = ?")
             params.append(band)
 
         where_clause = " AND ".join(where_parts)
-        
+
         # Consulta de items
         query = f"""
             SELECT 
                 v.id as video_id, v.youtube_video_id, v.title, v.description, v.published_at, v.duration_seconds, v.thumbnail_url, v.content_type,
-                ch.id as channel_id, ch.youtube_channel_id, ch.title as channel_title, ch.is_subscribed, ch.is_locally_followed, ch.is_blocked,
-                dc.category_id, dc.band, dc.score, dc.selection_rank, dc.reasons_json
+                ch.id as channel_id, ch.youtube_channel_id, ch.title as channel_title, ch.description as channel_description,
+                ch.thumbnail_url as channel_thumbnail_url, ch.is_subscribed, ch.is_locally_followed, ch.is_blocked,
+                dc.category_id, dc.band, dc.score, dc.selection_rank, dc.reasons_json,
+                COALESCE(vus.watched, 0) as watched
             FROM discovery_candidates dc
             JOIN videos v ON dc.video_id = v.id
             JOIN channels ch ON v.channel_id = ch.id
+            LEFT JOIN video_user_state vus ON v.id = vus.video_id
             WHERE {where_clause}
             ORDER BY dc.category_id ASC, dc.selection_rank ASC
             LIMIT ? OFFSET ?
@@ -374,7 +390,20 @@ class DiscoveryRepository:
         params_items = params + [limit, offset]
         cursor = db.execute(query, params_items)
         rows = cursor.fetchall()
-        
+
+        # Construir mapa de categoryIds por canal
+        channel_ids = list({r["channel_id"] for r in rows})
+        category_map = {}
+        if channel_ids:
+            placeholders = ",".join("?" for _ in channel_ids)
+            cat_rows = db.execute(f"""
+                SELECT channel_id, category_id
+                FROM channel_categories
+                WHERE channel_id IN ({placeholders})
+            """, channel_ids).fetchall()
+            for row in cat_rows:
+                category_map.setdefault(row["channel_id"], []).append(row["category_id"])
+
         recommendations = []
         for r in rows:
             reasons = []
@@ -383,24 +412,32 @@ class DiscoveryRepository:
                     reasons = json.loads(r["reasons_json"])
                 except Exception:
                     pass
-            
+
+            is_followed = bool(r["is_subscribed"]) or bool(r["is_locally_followed"])
+            origin = "followed" if is_followed else "discovery"
+
             recommendations.append({
                 "video": {
                     "id": r["video_id"],
                     "youtubeVideoId": r["youtube_video_id"],
                     "title": r["title"],
-                    "description": r["description"],
+                    "description": r["description"] or "",
                     "publishedAt": r["published_at"],
                     "durationSeconds": r["duration_seconds"],
-                    "thumbnailUrl": r["thumbnail_url"],
-                    "contentType": r["content_type"],
+                    "thumbnailUrl": r["thumbnail_url"] or None,
+                    "contentType": r["content_type"] or "video",
+                    "origin": origin,
+                    "watched": bool(r["watched"]),
                     "channel": {
                         "id": r["channel_id"],
                         "youtubeChannelId": r["youtube_channel_id"],
                         "title": r["channel_title"],
-                        "isSubscribed": bool(r["is_subscribed"]),
-                        "isLocallyFollowed": bool(r["is_locally_followed"]),
-                        "isBlocked": bool(r["is_blocked"])
+                        "description": r["channel_description"] or "",
+                        "thumbnailUrl": r["channel_thumbnail_url"] or None,
+                        "subscribed": bool(r["is_subscribed"]),
+                        "locallyFollowed": bool(r["is_locally_followed"]),
+                        "blocked": bool(r["is_blocked"]),
+                        "categoryIds": category_map.get(r["channel_id"], [])
                     }
                 },
                 "context": {
@@ -414,7 +451,6 @@ class DiscoveryRepository:
             })
 
         # Consulta de resúmenes de lote (batches)
-        # Queremos los lotes de la última corrida exitosa de cada categoría
         query_batches = """
             SELECT db.category_id, db.refresh_run_id, db.target_total, db.selected_total,
                    db.target_by_band_json, db.selected_by_band_json, db.shortfall_reason, db.generated_at
@@ -427,7 +463,7 @@ class DiscoveryRepository:
         """
         cursor_batches = db.execute(query_batches)
         batches_rows = cursor_batches.fetchall()
-        
+
         batches = []
         for b in batches_rows:
             try:
@@ -436,7 +472,7 @@ class DiscoveryRepository:
             except Exception:
                 target_by_band = {"related": 5, "adjacent": 2, "exploratory": 1}
                 selected_by_band = {"related": 0, "adjacent": 0, "exploratory": 0}
-                
+
             batches.append({
                 "categoryId": b["category_id"],
                 "refreshRunId": b["refresh_run_id"],

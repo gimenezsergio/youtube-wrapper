@@ -1,6 +1,8 @@
 import re
-from typing import List, Dict, Any, Set, Tuple, Optional
+from typing import Dict, List, Optional, Set, Tuple
+
 from app.domain.discovery.models import Band, DiscoveryCandidateDomain
+
 
 def calculate_jaccard_similarity(title_a: str, title_b: str) -> float:
     """
@@ -8,7 +10,7 @@ def calculate_jaccard_similarity(title_a: str, title_b: str) -> float:
     para ignorar plurales/singulares y palabras de parada cortas.
     """
     from app.domain.discovery.normalization import normalize_term
-    
+
     def get_stems(t: str) -> Set[str]:
         normalized = normalize_term(t)
         words = re.findall(r'\w+', normalized)
@@ -17,13 +19,13 @@ def calculate_jaccard_similarity(title_a: str, title_b: str) -> float:
             if len(w) > 3:
                 stems.add(w[:5])
         return stems
-    
+
     stems_a = get_stems(title_a)
     stems_b = get_stems(title_b)
-    
+
     if not stems_a or not stems_b:
         return 0.0
-        
+
     intersection = stems_a.intersection(stems_b)
     union = stems_a.union(stems_b)
     return len(intersection) / len(union)
@@ -124,7 +126,7 @@ def select_batch_diverse(
             remaining_exploratory.append(c)
 
     # 3. Aplicar matriz de Fallback
-    # A) Si falta related: intentar rellenar con adjacent restantes
+    # A) Si falta related: intentar rellenar con adjacent restantes, luego con exploratory restantes
     if related_selected < target_related:
         needed = target_related - related_selected
         fallback_added = 0
@@ -138,7 +140,20 @@ def select_batch_diverse(
         remaining_adjacent = still_remaining_adjacent
         related_selected += fallback_added
 
-    # B) Si falta adjacent: intentar rellenar con related restantes
+        if related_selected < target_related:
+            needed = target_related - related_selected
+            fallback_added = 0
+            still_remaining_exploratory = []
+            for c in remaining_exploratory:
+                if fallback_added < needed and is_eligible(c):
+                    add_to_selected(c)
+                    fallback_added += 1
+                else:
+                    still_remaining_exploratory.append(c)
+            remaining_exploratory = still_remaining_exploratory
+            related_selected += fallback_added
+
+    # B) Si falta adjacent: intentar rellenar con related restantes, luego con exploratory restantes
     if adjacent_selected < target_adjacent:
         needed = target_adjacent - adjacent_selected
         fallback_added = 0
@@ -152,11 +167,24 @@ def select_batch_diverse(
         remaining_related = still_remaining_related
         adjacent_selected += fallback_added
 
+        if adjacent_selected < target_adjacent:
+            needed = target_adjacent - adjacent_selected
+            fallback_added = 0
+            still_remaining_exploratory = []
+            for c in remaining_exploratory:
+                if fallback_added < needed and is_eligible(c):
+                    add_to_selected(c)
+                    fallback_added += 1
+                else:
+                    still_remaining_exploratory.append(c)
+            remaining_exploratory = still_remaining_exploratory
+            adjacent_selected += fallback_added
+
     # C) Si falta exploratory: intentar rellenar con adjacent restantes, luego con related restantes
     if exploratory_selected < target_exploratory:
         needed = target_exploratory - exploratory_selected
         fallback_added = 0
-        
+
         # Primero de adjacent restante
         still_remaining_adjacent = []
         for c in remaining_adjacent:
@@ -166,7 +194,8 @@ def select_batch_diverse(
             else:
                 still_remaining_adjacent.append(c)
         remaining_adjacent = still_remaining_adjacent
-        
+        exploratory_selected += fallback_added
+
         # Luego de related restante
         if fallback_added < needed:
             still_remaining_related = []
@@ -177,8 +206,7 @@ def select_batch_diverse(
                 else:
                     still_remaining_related.append(c)
             remaining_related = still_remaining_related
-            
-        exploratory_selected += fallback_added
+            exploratory_selected += fallback_added
 
     # Asignar selection_rank (1-based index)
     for index, c in enumerate(selected):

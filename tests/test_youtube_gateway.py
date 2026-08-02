@@ -1,15 +1,13 @@
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-import requests
+
 from app.integrations.youtube.gateway import (
-    YouTubeGateway,
     YouTubeAuthorizationError,
+    YouTubeGateway,
     YouTubeQuotaError,
-    YouTubeTransientError,
-    YouTubeNotFoundError,
-    YouTubeInvalidResponseError,
-    YouTubeAPIError
 )
+
 
 @patch("app.integrations.youtube.gateway.requests.request")
 def test_youtube_gateway_search_success(mock_request, app):
@@ -38,12 +36,12 @@ def test_youtube_gateway_search_success(mock_request, app):
     with app.app_context():
         gateway = YouTubeGateway()
         res = gateway.search_videos("token", "linux tutorial", limit=5)
-        
+
         assert len(res) == 1
         assert res[0]["youtube_video_id"] == "vid_1"
         assert res[0]["title"] == "Video 1 Title"
         assert res[0]["channel_title"] == "Canal 1"
-        
+
         # Verificar parámetros de llamada
         mock_request.assert_called_once()
         args, kwargs = mock_request.call_args
@@ -56,11 +54,11 @@ def test_youtube_gateway_transient_error_retry(mock_request, app):
     # 2 fallos 503 seguidos de un éxito 200
     mock_fail = MagicMock()
     mock_fail.status_code = 503
-    
+
     mock_success = MagicMock()
     mock_success.status_code = 200
     mock_success.json.return_value = {"items": []}
-    
+
     mock_request.side_effect = [mock_fail, mock_fail, mock_success]
 
     with app.app_context():

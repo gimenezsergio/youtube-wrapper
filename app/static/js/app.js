@@ -506,7 +506,7 @@ async function renderDiscoveriesView() {
     const updateFilters = () => {
         const selectedCat = catSelect.value;
         const selectedBand = bandSelect.value;
-        navigateTo(`/discoveries?categoryId=${selectedCat}&band=${selectedBand}`);
+        navigateToRoute(`/discoveries?categoryId=${selectedCat}&band=${selectedBand}`);
     };
 
     catSelect.addEventListener("change", updateFilters);
@@ -625,19 +625,19 @@ async function renderDiscoveriesView() {
 
             // Action Listeners
             card.querySelector(".btn-accept").addEventListener("click", async () => {
-                await sendFeedback(video.id, "accept_channel", video.channel.id);
+                await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
                 showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
                 card.remove();
             });
 
             card.querySelector(".btn-less").addEventListener("click", async () => {
-                await sendFeedback(video.id, "less_like_this", video.channel.id);
+                await sendFeedback(video.id, "less_like_this", video.channel.id, catId);
                 showNotification("Afinidad reducida para esta categoría.");
                 card.remove();
             });
 
             card.querySelector(".btn-hide").addEventListener("click", async () => {
-                await sendFeedback(video.id, "hide_video");
+                await sendFeedback(video.id, "hide_video", null, catId);
                 showNotification("Video ocultado de este lote.");
                 card.remove();
             });
@@ -645,7 +645,7 @@ async function renderDiscoveriesView() {
             card.querySelector(".btn-block-channel").addEventListener("click", async () => {
                 const confirmed = await showConfirmDialog("Bloquear Canal", `¿Estás seguro de que deseas bloquear globalmente a '${video.channel.title}'? No se volverán a recomendar sus videos.`);
                 if (confirmed) {
-                    await sendFeedback(video.id, "block_channel", video.channel.id);
+                    await sendFeedback(video.id, "block_channel", video.channel.id, catId);
                     showNotification(`Canal ${video.channel.title} bloqueado.`);
                     card.remove();
                 }
@@ -660,9 +660,12 @@ async function renderDiscoveriesView() {
     }
 }
 
-async function sendFeedback(videoId, action, channelId = null) {
-    const urlParams = new URLSearchParams(window.location.search);
-    const catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
+async function sendFeedback(videoId, action, channelId = null, categoryId = null) {
+    let catId = categoryId;
+    if (!catId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
+    }
     
     await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
         method: "POST",
@@ -703,7 +706,7 @@ async function renderCategoryFeedView(categoryId) {
     const urlParams = new URLSearchParams(window.location.search);
     const initialView = urlParams.get("view") || "feed";
     const initialWatched = urlParams.get("watched") || "false"; // Por defecto no vistos para priorizar pendientes
-    const initialOrigin = urlParams.get("origin") || "all";
+    const initialOrigin = urlParams.get("origin") || "followed";
     const initialQuery = urlParams.get("query") || "";
 
     viewContainer.innerHTML = `
@@ -1460,11 +1463,15 @@ function triggerSubscriptionSync() {
                 const statusRun = await checkResp.json();
                 
                 const status = statusRun.status;
-                const stage = statusRun.current_stage || "Preparando...";
-                const counters = typeof statusRun.counters_json === "string" ? JSON.parse(statusRun.counters_json || "{}") : (statusRun.counters_json || {});
-                const errors = typeof statusRun.errors_json === "string" ? JSON.parse(statusRun.errors_json || "{}") : (statusRun.errors_json || {});
+                const stage = statusRun.currentStage || "Preparando...";
+                const counters = statusRun.counters || {};
+
+                const errors = {};
+                (statusRun.errors || []).forEach(e => {
+                    errors[e.stage] = e.message;
+                });
                 
-                const stagesList = typeof statusRun.requested_stages_json === "string" ? JSON.parse(statusRun.requested_stages_json || "[]") : (statusRun.requested_stages_json || []);
+                const stagesList = statusRun.stages || [];
                 let completedCount = 0;
                 stagesList.forEach(s => {
                     if (counters[s] || errors[s]) completedCount++;
