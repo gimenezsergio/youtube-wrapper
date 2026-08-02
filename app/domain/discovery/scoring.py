@@ -10,9 +10,9 @@ def score_and_classify_candidate(
     video: dict,  # Contiene youtube_video_id, title, description, published_at, duration_seconds, content_type, channel_title, youtube_channel_id, channel_id (opcional)
     signals: CategorySignals,
     now: Optional[datetime] = None,
-    min_score_related: float = 55.0,
-    min_score_adjacent: float = 45.0,
-    min_score_exploratory: float = 35.0
+    min_score_related: float = 0.0,
+    min_score_adjacent: float = 0.0,
+    min_score_exploratory: float = 0.0
 ) -> Optional[DiscoveryCandidateDomain]:
     """
     Evalúa un video candidato contra los señales de una categoría.
@@ -161,6 +161,14 @@ def score_and_classify_candidate(
     if band is None:
         return None
 
+    # Verificar umbrales mínimos por banda
+    if band == Band.RELATED and score < min_score_related:
+        return None
+    if band == Band.ADJACENT and score < min_score_adjacent:
+        return None
+    if band == Band.EXPLORATORY and score < min_score_exploratory:
+        return None
+
     if freshness_score >= 7.0:
         reasons.append("Publicado recientemente.")
 
@@ -170,7 +178,7 @@ def score_and_classify_candidate(
     reasons = reasons[:3]
 
     return DiscoveryCandidateDomain(
-        video_id=video.get("video_id", 0),
+        video_id=video.get("video_id") or 0,
         youtube_video_id=video.get("youtube_video_id", ""),
         channel_id=channel_id or 0,
         youtube_channel_id=youtube_channel_id,

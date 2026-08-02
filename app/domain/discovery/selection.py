@@ -51,24 +51,26 @@ def select_batch_diverse(
     target_total: int = 8,
     target_related: int = 5,
     target_adjacent: int = 2,
-    target_exploratory: int = 1
+    target_exploratory: int = 1,
+    max_videos_per_channel: int = 2,
+    min_score_related: float = 55.0,
+    min_score_adjacent: float = 45.0,
+    min_score_exploratory: float = 35.0
 ) -> Tuple[List[DiscoveryCandidateDomain], dict, Optional[str]]:
     """
     Realiza la selección determinista y diversa del lote respetando la mezcla 5/2/1.
     Aplica límites de diversidad:
-    - Máximo 2 videos por canal.
+    - Máximo videos por canal (configurable).
     - Evita títulos duplicados (Jaccard > 0.7).
     Aplica la matriz de fallback en caso de escasez:
-    - Faltante de related -> cubierto por adjacent.
-    - Faltante de adjacent -> cubierto por related.
+    - Faltante de related -> cubierto por adjacent. NUNCA por exploratory.
+    - Faltante de adjacent -> cubierto por related. NUNCA por exploratory.
     - Faltante de exploratory -> cubierto por adjacent, luego related.
-    - NUNCA cubre related o adjacent con exploratory.
     """
-    # 1. Separar por bandas y filtrar por puntajes mínimos
-    # related >= 55, adjacent >= 45, exploratory >= 35
-    pool_related = [c for c in candidates if c.band == Band.RELATED and c.score >= 55.0]
-    pool_adjacent = [c for c in candidates if c.band == Band.ADJACENT and c.score >= 45.0]
-    pool_exploratory = [c for c in candidates if c.band == Band.EXPLORATORY and c.score >= 35.0]
+    # 1. Separar por bandas y filtrar por puntajes mínimos configurados
+    pool_related = [c for c in candidates if c.band == Band.RELATED and c.score >= min_score_related]
+    pool_adjacent = [c for c in candidates if c.band == Band.ADJACENT and c.score >= min_score_adjacent]
+    pool_exploratory = [c for c in candidates if c.band == Band.EXPLORATORY and c.score >= min_score_exploratory]
 
     # Ordenar cada pool de forma estable
     pool_related = sort_candidates_stable(pool_related)
@@ -80,8 +82,8 @@ def select_batch_diverse(
     selected_titles: List[str] = []
 
     def is_eligible(c: DiscoveryCandidateDomain) -> bool:
-        # Límite por canal (máx 2)
-        if channel_counts.get(c.youtube_channel_id, 0) >= 2:
+        # Límite por canal
+        if channel_counts.get(c.youtube_channel_id, 0) >= max_videos_per_channel:
             return False
         # Similitud de títulos
         for title in selected_titles:
@@ -95,7 +97,7 @@ def select_batch_diverse(
         selected_titles.append(c.title)
 
     # 2. Selección inicial por banda
-    # Related (hasta 5)
+    # Related
     related_selected = 0
     remaining_related = []
     for c in pool_related:
@@ -105,7 +107,7 @@ def select_batch_diverse(
         else:
             remaining_related.append(c)
 
-    # Adjacent (hasta 2)
+    # Adjacent
     adjacent_selected = 0
     remaining_adjacent = []
     for c in pool_adjacent:
@@ -115,7 +117,7 @@ def select_batch_diverse(
         else:
             remaining_adjacent.append(c)
 
-    # Exploratory (hasta 1)
+    # Exploratory
     exploratory_selected = 0
     remaining_exploratory = []
     for c in pool_exploratory:
@@ -126,7 +128,7 @@ def select_batch_diverse(
             remaining_exploratory.append(c)
 
     # 3. Aplicar matriz de Fallback
-    # A) Si falta related: intentar rellenar con adjacent restantes, luego con exploratory restantes
+    # A) Si falta related: intentar rellenar con adjacent restantes (NUNCA con exploratory)
     if related_selected < target_related:
         needed = target_related - related_selected
         fallback_added = 0
@@ -140,20 +142,7 @@ def select_batch_diverse(
         remaining_adjacent = still_remaining_adjacent
         related_selected += fallback_added
 
-        if related_selected < target_related:
-            needed = target_related - related_selected
-            fallback_added = 0
-            still_remaining_exploratory = []
-            for c in remaining_exploratory:
-                if fallback_added < needed and is_eligible(c):
-                    add_to_selected(c)
-                    fallback_added += 1
-                else:
-                    still_remaining_exploratory.append(c)
-            remaining_exploratory = still_remaining_exploratory
-            related_selected += fallback_added
-
-    # B) Si falta adjacent: intentar rellenar con related restantes, luego con exploratory restantes
+    # B) Si falta adjacent: intentar rellenar con related restantes (NUNCA con exploratory)
     if adjacent_selected < target_adjacent:
         needed = target_adjacent - adjacent_selected
         fallback_added = 0
@@ -166,19 +155,6 @@ def select_batch_diverse(
                 still_remaining_related.append(c)
         remaining_related = still_remaining_related
         adjacent_selected += fallback_added
-
-        if adjacent_selected < target_adjacent:
-            needed = target_adjacent - adjacent_selected
-            fallback_added = 0
-            still_remaining_exploratory = []
-            for c in remaining_exploratory:
-                if fallback_added < needed and is_eligible(c):
-                    add_to_selected(c)
-                    fallback_added += 1
-                else:
-                    still_remaining_exploratory.append(c)
-            remaining_exploratory = still_remaining_exploratory
-            adjacent_selected += fallback_added
 
     # C) Si falta exploratory: intentar rellenar con adjacent restantes, luego con related restantes
     if exploratory_selected < target_exploratory:
@@ -226,10 +202,9 @@ def select_batch_diverse(
         }
     }
 
-    # Determinar shortfall_reason si no se completó el lote de 8
+    # Determinar shortfall_reason si no se completó el lote
     shortfall_reason = None
     if len(selected) < target_total:
-        # Si no había suficientes candidatos elegibles en general
         shortfall_reason = "insufficient_candidates"
 
     return selected, counts_dict, shortfall_reason

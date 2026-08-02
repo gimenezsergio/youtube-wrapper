@@ -18,7 +18,7 @@ class DiscoveryRepository:
         """Obtiene el conjunto de IDs de YouTube de videos ocultados en la categoría."""
         # Se buscan en discovery_feedback con acción 'hide_video' o discovery_candidates con status = 'hidden'
         cursor = db.execute("""
-            SELECT v.youtube_video_id 
+            SELECT v.youtube_video_id
             FROM discovery_feedback df
             JOIN videos v ON df.video_id = v.id
             WHERE df.category_id = ? AND df.action = 'hide_video'
@@ -161,25 +161,34 @@ class DiscoveryRepository:
 
     @staticmethod
     def get_channel_positive_videos_count(db, category_id: int, channel_id: int, signal_window_days: int = 90) -> int:
-        """Cuenta cuántos videos distintos de un canal han tenido interacción positiva en la categoría."""
+        """Calcula la fuerza total de señales positivas de un canal para la categoría."""
         now = datetime.now(timezone.utc)
         limit_date = (now - timedelta(days=signal_window_days)).isoformat()
 
-        # Interacciones positivas = abierto (opened_at) o visto (watched = 1) o feedback 'more_like_this'
         cursor = db.execute("""
-            SELECT COUNT(DISTINCT v.id) as cant
+            SELECT
+                SUM(
+                    CASE
+                        WHEN cc.category_id IS NOT NULL AND vus.opened_at >= ? THEN 1
+                        ELSE 0
+                    END +
+                    CASE
+                        WHEN cc.category_id IS NOT NULL AND vus.watched = 1 AND vus.updated_at >= ? THEN 1
+                        ELSE 0
+                    END +
+                    CASE
+                        WHEN df.id IS NOT NULL THEN 5
+                        ELSE 0
+                    END
+                ) as total_strength
             FROM videos v
             LEFT JOIN video_user_state vus ON v.id = vus.video_id
             LEFT JOIN channel_categories cc ON v.channel_id = cc.channel_id AND cc.category_id = ?
-            LEFT JOIN discovery_feedback df ON v.id = df.video_id AND df.category_id = ? AND df.action = 'more_like_this'
+            LEFT JOIN discovery_feedback df ON v.id = df.video_id AND df.category_id = ? AND df.action = 'more_like_this' AND df.created_at >= ?
             WHERE v.channel_id = ?
-              AND (
-                (cc.category_id IS NOT NULL AND (vus.opened_at >= ? OR vus.watched = 1))
-                OR (df.created_at >= ?)
-              )
-        """, (category_id, category_id, channel_id, limit_date, limit_date))
+        """, (limit_date, limit_date, category_id, category_id, limit_date, channel_id))
         row = cursor.fetchone()
-        return row["cant"] if row else 0
+        return row["total_strength"] if row and row["total_strength"] is not None else 0
 
     @staticmethod
     def upsert_channel_and_video(db, channel_data: dict, video_data: dict) -> Tuple[int, int]:
@@ -273,8 +282,8 @@ class DiscoveryRepository:
         db.execute("""
             UPDATE discovery_candidates
             SET status = 'expired'
-            WHERE category_id = ? 
-              AND last_refresh_run_id != ? 
+            WHERE category_id = ?
+              AND last_refresh_run_id != ?
               AND status = 'active'
         """, (category_id, current_run_id))
 
@@ -373,7 +382,7 @@ class DiscoveryRepository:
 
         # Consulta de items
         query = f"""
-            SELECT 
+            SELECT
                 v.id as video_id, v.youtube_video_id, v.title, v.description, v.published_at, v.duration_seconds, v.thumbnail_url, v.content_type,
                 ch.id as channel_id, ch.youtube_channel_id, ch.title as channel_title, ch.description as channel_description,
                 ch.thumbnail_url as channel_thumbnail_url, ch.is_subscribed, ch.is_locally_followed, ch.is_blocked,

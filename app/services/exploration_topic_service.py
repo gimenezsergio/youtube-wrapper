@@ -49,7 +49,7 @@ class ExplorationTopicService:
 
         # 2. Obtener títulos de videos recientes
         cursor = db.execute("""
-            SELECT v.title 
+            SELECT v.title
             FROM videos v
             JOIN channel_categories cc ON v.channel_id = cc.channel_id
             WHERE cc.category_id = ?

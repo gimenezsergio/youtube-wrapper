@@ -61,7 +61,7 @@ class SubscriptionService:
 
         return access_token
 
-    def sync_subscriptions(self, db) -> dict:
+    def sync_subscriptions(self, db, heartbeat_callback=None) -> dict:
         """
         Sincroniza de forma atómica e idempotente las suscripciones de YouTube en SQLite.
         """
@@ -81,6 +81,9 @@ class SubscriptionService:
             cursor = db.execute("UPDATE channels SET is_subscribed = 0 WHERE is_subscribed = 1")
             db.commit()
             return {"created": 0, "updated": 0, "unsubscribed": cursor.rowcount}
+
+        if heartbeat_callback:
+            heartbeat_callback()
 
         # 3. Descargar detalles completos en lotes de 50 (snippet, contentDetails)
         remote_ids = [sub["youtube_channel_id"] for sub in subs_list]

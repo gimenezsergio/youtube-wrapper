@@ -15,7 +15,7 @@ class DiscoveryService:
     def __init__(self, gateway=None):
         self.gateway = gateway or YouTubeGateway()
 
-    def run_discovery(self, db, run_id: int) -> dict:
+    def run_discovery(self, db, run_id: int, heartbeat_callback=None) -> dict:
         """
         Ejecuta el motor de descubrimiento para todas las categorías.
         - Genera consultas en round-robin.
@@ -32,12 +32,26 @@ class DiscoveryService:
             raise e
 
         # 2. Cargar configuraciones de presupuestos
-        # Usamos los límites de la base de configuración
         from flask import current_app
         global_budget = current_app.config.get("DISCOVERY_MAX_SEARCHES_PER_REFRESH", 10)
         category_budget = current_app.config.get("DISCOVERY_MAX_SEARCHES_PER_CATEGORY", 2)
         signal_window = current_app.config.get("DISCOVERY_SIGNAL_WINDOW_DAYS", 90)
         search_age_days = current_app.config.get("DISCOVERY_MAX_SEARCH_AGE_DAYS", 180)
+
+        # Configuración de mezcla y selección
+        batch_size = current_app.config.get("DISCOVERY_BATCH_SIZE", 8)
+        mix_related = current_app.config.get("DISCOVERY_MIX_RELATED", 5)
+        mix_adjacent = current_app.config.get("DISCOVERY_MIX_ADJACENT", 2)
+        mix_exploratory = current_app.config.get("DISCOVERY_MIX_EXPLORATORY", 1)
+        max_videos_per_channel = current_app.config.get("DISCOVERY_MAX_VIDEOS_PER_CHANNEL", 2)
+        results_per_search = current_app.config.get("DISCOVERY_RESULTS_PER_SEARCH", 25)
+        region_code = current_app.config.get("DISCOVERY_REGION_CODE", "AR")
+        relevance_language = current_app.config.get("DISCOVERY_RELEVANCE_LANGUAGE", "es")
+
+        # Umbrales
+        min_related = current_app.config.get("DISCOVERY_MIN_SCORE_RELATED", 55.0)
+        min_adjacent = current_app.config.get("DISCOVERY_MIN_SCORE_ADJACENT", 45.0)
+        min_exploratory = current_app.config.get("DISCOVERY_MIN_SCORE_EXPLORATORY", 35.0)
 
         now = datetime.now(timezone.utc)
         published_after = (now - timedelta(days=search_age_days)).isoformat()[:19] + "Z"
@@ -51,35 +65,44 @@ class DiscoveryService:
 
         # 4. Registrar propuestas automáticas y armar snapshot de señales
         for cat_id in category_ids:
-            # Proponer nuevos temas (se crean como 'pending', por lo que no afectan el snapshot actual)
             try:
                 ExplorationTopicService.generate_automatic_proposals(db, cat_id)
             except Exception as e:
                 logger.warning(f"Error generando propuestas de temas para categoría {cat_id}: {e}")
 
-            # Tomar snapshot de señales locales y palabras clave
             signals = DiscoveryRepository.get_category_signals(db, cat_id, signal_window_days=signal_window)
             category_signals[cat_id] = signals
 
-            # Generar consultas
             queries = build_queries_for_category(signals, max_queries=category_budget)
             category_queries[cat_id] = queries
 
         # 5. Programar en round-robin
         scheduled_tasks = schedule_queries_round_robin(category_queries, global_budget=global_budget, max_per_category=category_budget)
 
+        # Track scheduled counts
+        scheduled_counts = {cat_id: 0 for cat_id in category_ids}
+        for cat_id, _ in scheduled_tasks:
+            scheduled_counts[cat_id] += 1
+
+        successful_counts = {cat_id: 0 for cat_id in category_ids}
+        category_failed = {cat_id: False for cat_id in category_ids}
+        category_failure_reason = {cat_id: None for cat_id in category_ids}
+
         quota_exhausted = False
-        budget_exhausted = False
         searches_executed = 0
 
         # Guardar candidatos encontrados por categoría
         raw_items_by_category = {cat_id: {} for cat_id in category_ids}
-        shortfall_reasons = {cat_id: None for cat_id in category_ids}
 
         # 6. Ejecutar búsquedas
+        # 6. Ejecutar búsquedas
         for cat_id, q_task in scheduled_tasks:
-            if quota_exhausted:
-                shortfall_reasons[cat_id] = "quota_exhausted"
+            if heartbeat_callback:
+                heartbeat_callback()
+
+            if quota_exhausted or category_failed[cat_id]:
+                category_failed[cat_id] = True
+                category_failure_reason[cat_id] = "quota_exhausted" if quota_exhausted else category_failure_reason[cat_id]
                 continue
 
             q_str = q_task["q"]
@@ -91,11 +114,13 @@ class DiscoveryService:
                     access_token,
                     q=q_str,
                     published_after=published_after,
-                    limit=25
+                    limit=results_per_search,
+                    region_code=region_code,
+                    relevance_language=relevance_language
                 )
                 searches_executed += 1
+                successful_counts[cat_id] += 1
 
-                # Procesar cada item y agregarlo al mapa de candidatos crudos
                 for item in items:
                     v_id = item["youtube_video_id"]
                     raw_items_by_category[cat_id][v_id] = item
@@ -103,37 +128,62 @@ class DiscoveryService:
             except YouTubeQuotaError as eq:
                 logger.error(f"Cuota de YouTube agotada: {eq}")
                 quota_exhausted = True
-                shortfall_reasons[cat_id] = "quota_exhausted"
+                category_failed[cat_id] = True
+                category_failure_reason[cat_id] = "quota_exhausted"
             except Exception as e:
                 logger.error(f"Error ejecutando consulta '{q_str}' para categoría {cat_id}: {e}")
-                shortfall_reasons[cat_id] = "external_error"
+                category_failed[cat_id] = True
+                category_failure_reason[cat_id] = "external_error"
 
         # 7. Hidratar, puntuar, seleccionar y persistir lotes por categoría
         stats_by_category = {}
-        raw_candidates_by_category = {cat_id: [] for cat_id in category_ids}
-
-        # Cargar umbrales desde configuración
-        min_related = current_app.config.get("DISCOVERY_MIN_SCORE_RELATED", 55.0)
-        min_adjacent = current_app.config.get("DISCOVERY_MIN_SCORE_ADJACENT", 45.0)
-        min_exploratory = current_app.config.get("DISCOVERY_MIN_SCORE_EXPLORATORY", 35.0)
 
         for cat_id in category_ids:
+            # Si tiene búsquedas programadas pero menos completadas exitosamente, la categoría falló
+            if scheduled_counts[cat_id] > 0 and successful_counts[cat_id] < scheduled_counts[cat_id]:
+                category_failed[cat_id] = True
+                if not category_failure_reason[cat_id]:
+                    category_failure_reason[cat_id] = "external_error"
+
             signals = category_signals[cat_id]
             unique_items = list(raw_items_by_category[cat_id].values())
 
             # Si no había palabras clave o señales
             if not signals.positive_keywords and not signals.seed_channel_ids:
-                DiscoveryRepository.save_discovery_batch(
-                    db, run_id, cat_id,
-                    {"targetByBand": {"related": 5, "adjacent": 2, "exploratory": 1},
-                     "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0}},
-                    shortfall_reason="insufficient_signals"
-                )
-                stats_by_category[cat_id] = {"selected": 0, "shortfall": "insufficient_signals"}
+                from flask import current_app
+
+                from app.db import get_db_connection
+                db_path = current_app.config["DATABASE_PATH"]
+                cat_conn = get_db_connection(db_path)
+                try:
+                    cat_conn.execute("BEGIN IMMEDIATE")
+                    DiscoveryRepository.save_discovery_batch(
+                        cat_conn, run_id, cat_id,
+                        {"targetByBand": {"related": mix_related, "adjacent": mix_adjacent, "exploratory": mix_exploratory},
+                         "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0}},
+                        shortfall_reason="insufficient_signals"
+                    )
+                    cat_conn.commit()
+                    stats_by_category[cat_id] = {"selected": 0, "shortfall": "insufficient_signals", "failed": False}
+                except Exception as e:
+                    cat_conn.rollback()
+                    logger.error(f"Error al guardar batch vacío para categoría {cat_id}: {e}")
+                    stats_by_category[cat_id] = {"selected": 0, "shortfall": "external_error", "failed": True}
+                finally:
+                    cat_conn.close()
+                continue
+
+            if category_failed[cat_id]:
+                logger.warning(f"Categoría {cat_id} falló durante la búsqueda. Se conserva el lote anterior. Motivo: {category_failure_reason[cat_id]}")
+                stats_by_category[cat_id] = {
+                    "selected": 0,
+                    "shortfall": category_failure_reason[cat_id],
+                    "failed": True
+                }
                 continue
 
             if not unique_items:
-                stats_by_category[cat_id] = {"selected": 0, "shortfall": shortfall_reasons[cat_id] or "no_results"}
+                stats_by_category[cat_id] = {"selected": 0, "shortfall": "no_results", "failed": False}
                 continue
 
             # Batch hydrate videos y channels
@@ -145,7 +195,8 @@ class DiscoveryService:
                 v_details_map = {vd["youtube_video_id"]: vd for vd in videos_details}
             except Exception as ev:
                 logger.error(f"Error al hidratar videos para categoría {cat_id}: {ev}")
-                shortfall_reasons[cat_id] = "external_error"
+                category_failed[cat_id] = True
+                category_failure_reason[cat_id] = "external_error"
                 v_details_map = {}
 
             try:
@@ -153,10 +204,20 @@ class DiscoveryService:
                 c_details_map = {cd["youtube_channel_id"]: cd for cd in channels_details}
             except Exception as ec:
                 logger.error(f"Error al hidratar canales para categoría {cat_id}: {ec}")
-                shortfall_reasons[cat_id] = "external_error"
+                category_failed[cat_id] = True
+                category_failure_reason[cat_id] = "external_error"
                 c_details_map = {}
 
-            # Construir y evaluar candidatos hidratados
+            if category_failed[cat_id]:
+                logger.warning(f"Categoría {cat_id} falló durante hidratación. Se conserva el lote anterior. Motivo: {category_failure_reason[cat_id]}")
+                stats_by_category[cat_id] = {
+                    "selected": 0,
+                    "shortfall": category_failure_reason[cat_id],
+                    "failed": True
+                }
+                continue
+
+            candidates_data = []
             for item in unique_items:
                 v_id = item["youtube_video_id"]
                 c_id = item["youtube_channel_id"]
@@ -167,36 +228,22 @@ class DiscoveryService:
                 if not v_det or not c_det:
                     continue
 
-                # Excluir shorts: videos de duración <= 180 segundos
                 if v_det.get("duration_seconds") is None or v_det["duration_seconds"] <= 180:
                     continue
 
-                # Upsert local
-                chan_data = {
-                    "youtube_channel_id": c_id,
-                    "title": c_det.get("title") or item["channel_title"],
-                    "description": c_det.get("description") or "",
-                    "thumbnail_url": c_det.get("thumbnail_url") or item["thumbnail_url"]
-                }
-                video_data = {
-                    "youtube_video_id": v_id,
-                    "title": item["title"],
-                    "description": item["description"],
-                    "published_at": item["published_at"],
-                    "thumbnail_url": item["thumbnail_url"],
-                    "duration_seconds": v_det["duration_seconds"],
-                    "content_type": v_det.get("content_type", "video")
-                }
+                # Query database IDs without creating write locks
+                c_row = db.execute("SELECT id FROM channels WHERE youtube_channel_id = ?", (c_id,)).fetchone()
+                cid = c_row["id"] if c_row else None
 
-                cid, vid = DiscoveryRepository.upsert_channel_and_video(db, chan_data, video_data)
+                v_row = db.execute("SELECT id FROM videos WHERE youtube_video_id = ?", (v_id,)).fetchone()
+                vid = v_row["id"] if v_row else None
 
-                # Diccionario completo para scoring
                 video_eval = {
                     "video_id": vid,
                     "youtube_video_id": v_id,
                     "channel_id": cid,
                     "youtube_channel_id": c_id,
-                    "channel_title": chan_data["title"],
+                    "channel_title": c_det.get("title") or item["channel_title"],
                     "title": item["title"],
                     "description": item["description"],
                     "published_at": item["published_at"],
@@ -205,7 +252,6 @@ class DiscoveryService:
                     "content_type": v_det.get("content_type", "video")
                 }
 
-                # Puntuar
                 candidate = score_and_classify_candidate(
                     video_eval,
                     signals,
@@ -216,14 +262,35 @@ class DiscoveryService:
                 )
                 if candidate:
                     candidate.category_id = cat_id
-                    raw_candidates_by_category[cat_id].append(candidate)
+                    # Conservar datos de canal/video hidratados para hacer el upsert después
+                    candidates_data.append((candidate, {
+                        "youtube_channel_id": c_id,
+                        "title": c_det.get("title") or item["channel_title"],
+                        "description": c_det.get("description") or "",
+                        "thumbnail_url": c_det.get("thumbnail_url") or item["thumbnail_url"]
+                    }, {
+                        "youtube_video_id": v_id,
+                        "title": item["title"],
+                        "description": item["description"],
+                        "published_at": item["published_at"],
+                        "thumbnail_url": item["thumbnail_url"],
+                        "duration_seconds": v_det["duration_seconds"],
+                        "content_type": v_det.get("content_type", "video")
+                    }))
 
             # Seleccionar lote diverso
-            candidates = raw_candidates_by_category[cat_id]
-            selected, counts, shortfall = select_batch_diverse(candidates, target_total=8)
-
-            if shortfall_reasons[cat_id]:
-                shortfall = shortfall_reasons[cat_id]
+            candidates = [cd[0] for cd in candidates_data]
+            selected, counts, shortfall = select_batch_diverse(
+                candidates,
+                target_total=batch_size,
+                target_related=mix_related,
+                target_adjacent=mix_adjacent,
+                target_exploratory=mix_exploratory,
+                max_videos_per_channel=max_videos_per_channel,
+                min_score_related=min_related,
+                min_score_adjacent=min_adjacent,
+                min_score_exploratory=min_exploratory
+            )
 
             # Degradación segura: Si el nuevo lote queda vacío (0 candidatos), NO lo persistimos
             # ni expiramos las recomendaciones anteriores. Conservamos el lote previo intacto.
@@ -231,24 +298,55 @@ class DiscoveryService:
                 logger.warning(f"Categoría {cat_id} no produjo candidatos nuevos válidos. Se conserva el lote anterior. Motivo: {shortfall or 'no_results'}")
                 stats_by_category[cat_id] = {
                     "selected": 0,
-                    "shortfall": shortfall or "no_results"
+                    "shortfall": shortfall or "no_results",
+                    "failed": False
                 }
                 continue
 
-            # Persistir candidatos seleccionados del nuevo lote
-            for candidate in selected:
-                DiscoveryRepository.save_discovery_candidate(db, candidate, run_id)
+            # Persistir candidatos de manera transaccional por categoría
+            from flask import current_app
 
-            # Guardar lote batch summary
-            DiscoveryRepository.save_discovery_batch(db, run_id, cat_id, counts, shortfall)
+            from app.db import get_db_connection
+            db_path = current_app.config["DATABASE_PATH"]
+            cat_conn = get_db_connection(db_path)
+            try:
+                cat_conn.execute("BEGIN IMMEDIATE")
 
-            # Expirar candidatos del lote anterior de forma atómica en esta transacción
-            DiscoveryRepository.expire_previous_candidates(db, cat_id, run_id)
+                # Upsert de canal/video y setear ids correctos en candidatos seleccionados
+                for candidate in selected:
+                    orig_tuple = next(t for t in candidates_data if t[0].youtube_video_id == candidate.youtube_video_id)
+                    chan_data = orig_tuple[1]
+                    video_data = orig_tuple[2]
 
-            stats_by_category[cat_id] = {
-                "selected": len(selected),
-                "shortfall": shortfall
-            }
+                    cid, vid = DiscoveryRepository.upsert_channel_and_video(cat_conn, chan_data, video_data)
+                    candidate.channel_id = cid
+                    candidate.video_id = vid
+
+                    DiscoveryRepository.save_discovery_candidate(cat_conn, candidate, run_id)
+
+                # Guardar lote batch summary
+                DiscoveryRepository.save_discovery_batch(cat_conn, run_id, cat_id, counts, shortfall)
+
+                # Expirar candidatos del lote anterior de forma atómica en esta transacción
+                DiscoveryRepository.expire_previous_candidates(cat_conn, cat_id, run_id)
+
+                cat_conn.commit()
+
+                stats_by_category[cat_id] = {
+                    "selected": len(selected),
+                    "shortfall": shortfall,
+                    "failed": False
+                }
+            except Exception:
+                cat_conn.rollback()
+                logger.exception(f"Error al persistir lote para categoría {cat_id}:")
+                stats_by_category[cat_id] = {
+                    "selected": 0,
+                    "shortfall": "external_error",
+                    "failed": True
+                }
+            finally:
+                cat_conn.close()
 
         return {
             "searches_executed": searches_executed,

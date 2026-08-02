@@ -127,6 +127,10 @@ def set_channel_blocked(channel_id):
 
     db = get_db()
     # Verificar si el canal existe
+    chk = db.execute("SELECT 1 FROM channels WHERE id = ?", (channel_id,)).fetchone()
+    if not chk:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
+
     db.execute("UPDATE channels SET is_blocked = ? WHERE id = ?", (int(blocked), channel_id))
 
     if blocked:

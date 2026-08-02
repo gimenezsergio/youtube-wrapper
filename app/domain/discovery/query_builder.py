@@ -34,7 +34,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
         terms_to_include = []
         # Agregamos las palabras clave principales que quepan en 100 caracteres (dejando espacio para las negativas)
         current_len = len(negative_part)
-        for term, weight in pos_keywords:
+        for term, _weight in pos_keywords:
             cleaned = clean_term_for_search(term)
             if not cleaned:
                 continue
@@ -76,7 +76,7 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
 
         # Tomar temas aprobados
         topics = sorted(signals.approved_exploration_topics, key=lambda x: x[1], reverse=True)
-        for topic_term, topic_weight in topics:
+        for topic_term, _topic_weight in topics:
             cleaned_topic = clean_term_for_search(topic_term)
             if anchor and cleaned_topic:
                 q_str = f"{anchor} {cleaned_topic}" + negative_part

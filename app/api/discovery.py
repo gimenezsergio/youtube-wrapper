@@ -115,18 +115,47 @@ def serialize_exploration_topic(topic_dict):
 
 @discovery_bp.route("/discoveries", methods=["GET"])
 def list_discoveries():
-    cat_id = request.args.get("categoryId", type=int)
+    cat_id_raw = request.args.get("categoryId")
     band = request.args.get("band", default="all")
     offset = request.args.get("cursor", default="0")
-    limit = request.args.get("limit", default="25", type=int)
+    limit_raw = request.args.get("limit", default="25")
 
+    # 1. Validar cursor
     try:
         offset_int = int(offset)
+        if offset_int < 0:
+            raise ValueError()
     except ValueError:
-        offset_int = 0
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "El parámetro cursor debe ser un entero no negativo."}}), 400
+
+    # 2. Validar band
+    valid_bands = {"all", "related", "adjacent", "exploratory"}
+    if band not in valid_bands:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Banda no válida: {band}"}}), 400
+
+    # 3. Validar limit
+    try:
+        limit = int(limit_raw)
+        if limit < 1 or limit > 100:
+            raise ValueError()
+    except ValueError:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "El parámetro limit debe ser un entero entre 1 y 100."}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
+        # 4. Validar categoryId si está presente
+        if cat_id_raw is not None:
+            try:
+                cat_id = int(cat_id_raw)
+            except ValueError:
+                return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "categoryId debe ser un entero."}}), 400
+
+            cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (cat_id,)).fetchone()
+            if not cat_check:
+                return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
+        else:
+            cat_id = None
+
         recs, batches, next_cursor = DiscoveryRepository.get_active_batch_recommendations(
             db, category_id=cat_id, band=band, offset=offset_int, limit=limit
         )
@@ -143,19 +172,31 @@ def submit_discovery_feedback(video_id):
     body = request.get_json() or {}
     category_id = body.get("categoryId")
     action = body.get("action")
-    channel_id = body.get("channelId")
 
     if not category_id or not action:
-        return jsonify({"error": {"message": "Falta categoryId o action"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Falta categoryId o action"}}), 400
+
+    valid_actions = {"more_like_this", "less_like_this", "hide_video", "block_channel", "accept_channel"}
+    if action not in valid_actions:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Acción no válida: {action}"}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
-        # Si no se pasó channelId, podemos obtenerlo del video
-        if not channel_id:
-            cursor = db.execute("SELECT channel_id FROM videos WHERE id = ?", (video_id,))
-            row = cursor.fetchone()
-            if row:
-                channel_id = row["channel_id"]
+        # 1. Validar categoría
+        cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not cat_check:
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
+
+        # 2. Validar candidato y derivar channel_id
+        candidate = db.execute("""
+            SELECT v.channel_id FROM discovery_candidates dc
+            JOIN videos v ON dc.video_id = v.id
+            WHERE dc.video_id = ? AND dc.category_id = ?
+        """, (video_id, category_id)).fetchone()
+        if not candidate:
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Candidato de descubrimiento no encontrado para esta categoría."}}), 404
+
+        channel_id = candidate["channel_id"]
 
         DiscoveryRepository.save_feedback(db, video_id=video_id, channel_id=channel_id, category_id=category_id, action=action)
         db.commit()
@@ -167,10 +208,23 @@ def submit_discovery_feedback(video_id):
 def restore_hidden_discovery(video_id):
     category_id = request.args.get("categoryId", type=int)
     if not category_id:
-        return jsonify({"error": {"message": "Falta categoryId"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Falta categoryId"}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
+        # 1. Validar categoría
+        cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not cat_check:
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
+
+        # 2. Validar candidato ocultado
+        candidate_check = db.execute("""
+            SELECT 1 FROM discovery_candidates
+            WHERE video_id = ? AND category_id = ? AND status = 'hidden'
+        """, (video_id, category_id)).fetchone()
+        if not candidate_check:
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Candidato oculto no encontrado para esta categoría."}}), 404
+
         # Revertir ocultación: eliminar el feedback 'hide_video' de la categoría
         # y poner el candidato de vuelta en 'active'
         db.execute("""
@@ -249,9 +303,17 @@ def list_discovery_exclusions():
 
 @discovery_bp.route("/refresh-runs", methods=["GET"])
 def list_refresh_runs():
+    limit_raw = request.args.get("limit", default="30")
+    try:
+        limit = int(limit_raw)
+        if limit < 1 or limit > 100:
+            raise ValueError()
+    except ValueError:
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "El parámetro limit debe ser un entero entre 1 y 100."}}), 400
+
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
-        runs = RefreshRunRepository.list_all(db)
+        runs = RefreshRunRepository.list_all(db, limit=limit)
         return jsonify({"items": [serialize_refresh_run(r) for r in runs]})
     finally:
         db.close()
@@ -261,7 +323,7 @@ def start_refresh():
     body = request.get_json() or {}
     stages = body.get("stages") or ["subscriptions", "followed_videos", "discovery"]
 
-    valid_stages = {"subscriptions", "channels", "followed_videos", "classification", "discovery"}
+    valid_stages = {"subscriptions", "followed_videos", "discovery"}
     for s in stages:
         if s not in valid_stages:
             return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Etapa desconocida: {s}"}}), 400
@@ -269,7 +331,7 @@ def start_refresh():
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
         if RefreshRunRepository.has_active_run(db):
-            return jsonify({"error": {"message": "Ya hay una actualización activa en curso."}}), 409
+            return jsonify({"error": {"code": "CONFLICT", "message": "Ya hay una actualización activa en curso."}}), 409
 
         run_id = RefreshRunRepository.create(db, stages)
         db.commit()
@@ -284,7 +346,7 @@ def get_refresh_run(run_id):
     try:
         run = RefreshRunRepository.get_by_id(db, run_id)
         if not run:
-            return jsonify({"error": {"message": "Actualización no encontrada."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Actualización no encontrada."}}), 404
         return jsonify(serialize_refresh_run(run))
     finally:
         db.close()
@@ -296,7 +358,7 @@ def list_exploration_topics(category_id):
     try:
         cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if not cat_check:
-            return jsonify({"error": {"message": "Categoría no encontrada."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
 
         all_topics = ExplorationTopicService.list_topics(db, category_id)
         if status != "all":
@@ -312,20 +374,27 @@ def create_exploration_topic(category_id):
     weight = body.get("weight", 1.0)
 
     if not term:
-        return jsonify({"error": {"message": "Falta el término"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Falta el término"}}), 400
+
+    try:
+        weight = float(weight)
+        if weight < 0.0 or weight > 10.0:
+            raise ValueError()
+    except (ValueError, TypeError):
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "El peso debe ser un número entre 0 y 10."}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
         cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if not cat_check:
-            return jsonify({"error": {"message": "Categoría no encontrada."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
 
         norm = normalize_term(term)
         existing = ExplorationTopicRepository.get_by_category_and_term(db, category_id, norm)
         if existing:
-            return jsonify({"error": {"message": "El tema ya existe en esta categoría."}}), 409
+            return jsonify({"error": {"code": "CONFLICT", "message": "El tema ya existe en esta categoría."}}), 409
 
-        topic_id = ExplorationTopicService.create_manual_topic(db, category_id, term, weight)
+        ExplorationTopicService.create_manual_topic(db, category_id, term, weight)
         db.commit()
         topic = ExplorationTopicRepository.get_by_category_and_term(db, category_id, norm)
         return jsonify(serialize_exploration_topic(topic)), 201
@@ -339,18 +408,30 @@ def update_exploration_topic(category_id, topic_id):
     weight = body.get("weight")
 
     if status is None and weight is None:
-        return jsonify({"error": {"message": "Falta status o weight"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Falta status o weight"}}), 400
+
+    if status is not None:
+        if status not in {"pending", "approved", "rejected"}:
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": f"Estado no válido: {status}"}}), 400
+
+    if weight is not None:
+        try:
+            weight = float(weight)
+            if weight < 0.0 or weight > 10.0:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "El peso debe ser un número entre 0 y 10."}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
         cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if not cat_check:
-            return jsonify({"error": {"message": "Categoría no encontrada."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
 
         cursor = db.execute("SELECT id, term FROM category_exploration_topics WHERE id = ? AND category_id = ?", (topic_id, category_id))
         row = cursor.fetchone()
         if not row:
-            return jsonify({"error": {"message": "Tema no encontrado en esta categoría."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Tema no encontrado en esta categoría."}}), 404
 
         if status:
             ExplorationTopicService.update_topic_status(db, topic_id, status)
@@ -369,17 +450,23 @@ def update_exploration_topic(category_id, topic_id):
 def suggest_follow_channel(channel_id):
     category_id = request.args.get("categoryId", type=int)
     if not category_id:
-        return jsonify({"error": {"message": "Falta categoryId"}}), 400
+        return jsonify({"error": {"code": "VALIDATION_ERROR", "message": "Falta categoryId"}}), 400
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
-        # Validar existencia de categoría
+        # 1. Validar existencia de canal
+        chan_check = db.execute("SELECT 1 FROM channels WHERE id = ?", (channel_id,)).fetchone()
+        if not chan_check:
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
+
+        # 2. Validar existencia de categoría
         cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
         if not cat_check:
-            return jsonify({"error": {"message": "Categoría no encontrada."}}), 404
+            return jsonify({"error": {"code": "NOT_FOUND", "message": "Categoría no encontrada."}}), 404
 
         count = DiscoveryRepository.get_channel_positive_videos_count(db, category_id, channel_id)
-        suggest = count >= 2
+        suggest_threshold = current_app.config.get("DISCOVERY_SUGGEST_CHANNEL_THRESHOLD_VIDEOS", 2)
+        suggest = count >= suggest_threshold
         return jsonify({
             "channelId": channel_id,
             "categoryId": category_id,

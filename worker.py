@@ -42,7 +42,19 @@ def main():
                         orchestrator = RefreshOrchestrator()
                         orchestrator.run_refresh(conn, job_id, WORKER_ID)
                         conn.commit()
-                        print(f"[{WORKER_ID}] Trabajo #{job_id} completado con éxito.")
+
+                        # Consultar el estado final del trabajo para imprimir el resultado correcto
+                        final_run = RefreshRunRepository.get_by_id(conn, job_id)
+                        if final_run:
+                            status = final_run["status"]
+                            if status == "succeeded":
+                                print(f"[{WORKER_ID}] Trabajo #{job_id} completado con éxito.")
+                            elif status == "partial":
+                                print(f"[{WORKER_ID}] Trabajo #{job_id} completado parcialmente con algunos errores.")
+                            else:
+                                print(f"[{WORKER_ID}] Trabajo #{job_id} finalizado con estado: {status}.")
+                        else:
+                            print(f"[{WORKER_ID}] Trabajo #{job_id} procesado.")
                     except Exception as e:
                         conn.rollback()
                         print(f"[{WORKER_ID}] Error al procesar trabajo #{job_id}: {e}")

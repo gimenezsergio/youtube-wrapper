@@ -59,7 +59,7 @@ class VideoService:
 
         return channel_candidates
 
-    def sync_videos(self, db) -> dict:
+    def sync_videos(self, db, heartbeat_callback=None) -> dict:
         """
         Sincroniza de forma incremental los videos de los canales activos y no bloqueados.
         Retorna estadísticas de la operación.
@@ -87,6 +87,9 @@ class VideoService:
 
         # 3. Consultar incrementalmente cada playlist de subidas
         for channel in channels:
+            if heartbeat_callback:
+                heartbeat_callback()
+
             playlist_id = channel["uploads_playlist_id"]
             if playlist_id:
                 processed_channels_count += 1
