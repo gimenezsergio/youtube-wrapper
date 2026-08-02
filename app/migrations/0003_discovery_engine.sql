@@ -1,7 +1,5 @@
 -- Migration 0003: Discovery Engine
 
-BEGIN TRANSACTION;
-
 -- Create category_exploration_topics table
 CREATE TABLE IF NOT EXISTS category_exploration_topics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,5 +74,3 @@ CREATE INDEX IF NOT EXISTS idx_discovery_batches_cat_run ON discovery_batches(ca
 CREATE INDEX IF NOT EXISTS idx_category_exploration_topics_cat_status_term ON category_exploration_topics(category_id, status, normalized_term);
 CREATE INDEX IF NOT EXISTS idx_channel_categories_cat_chan ON channel_categories(category_id, channel_id);
 CREATE INDEX IF NOT EXISTS idx_classification_suggestions_status_chan ON classification_suggestions(status, channel_id);
-
-COMMIT;

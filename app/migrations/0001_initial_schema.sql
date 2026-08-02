@@ -1,7 +1,5 @@
 -- Primera migración: Esquema base de YouTube Curator
 
-BEGIN TRANSACTION;
-
 -- 1. Canales
 CREATE TABLE IF NOT EXISTS channels (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -153,5 +151,3 @@ CREATE INDEX IF NOT EXISTS idx_discovery_candidates_cat_status_score ON discover
 CREATE INDEX IF NOT EXISTS idx_channel_categories_cat_chan ON channel_categories(category_id, channel_id);
 CREATE INDEX IF NOT EXISTS idx_class_suggestions_status_chan ON classification_suggestions(status, channel_id);
 CREATE INDEX IF NOT EXISTS idx_channels_subscribed_blocked ON channels(is_subscribed, is_blocked);
-
-COMMIT;
