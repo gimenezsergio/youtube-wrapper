@@ -62,8 +62,8 @@ def calculate_jaccard_similarity(text1: str, text2: str) -> float:
     return len(intersection) / len(union)
 
 
-def _get_sort_key(c: DiscoveryCandidateDomain) -> Tuple[float, float, str]:
-    """Genera la clave de ordenamiento determinista: (-score, -published_at_ts, youtube_video_id_asc)."""
+def _get_sort_key(c: DiscoveryCandidateDomain) -> Tuple[float, float, int, str, int, str, str]:
+    """Genera la clave de ordenamiento determinista total."""
     ts = 0.0
     if c.published_at:
         try:
@@ -71,7 +71,9 @@ def _get_sort_key(c: DiscoveryCandidateDomain) -> Tuple[float, float, str]:
             ts = datetime.fromisoformat(pub_str).timestamp()
         except Exception:
             pass
-    return (-c.score, -ts, c.youtube_video_id)
+
+    band_prio = 1 if c.band == Band.RELATED else (2 if c.band == Band.ADJACENT else 3)
+    return (-c.score, -ts, band_prio, c.youtube_video_id or "", c.video_id or 0, c.channel_title or "", c.title or "")
 
 
 def _can_add_candidate(
@@ -83,7 +85,8 @@ def _can_add_candidate(
     """Verifica si un candidato respeta el límite por canal y la diversidad de títulos."""
     channel_key = candidate.youtube_channel_id or candidate.channel_id
     channel_count = sum(
-        1 for s in selected if (s.youtube_channel_id or s.channel_id) == channel_key
+        1 for s in selected
+        if (s.youtube_channel_id or s.channel_id) == channel_key
     )
     if channel_count >= max_per_channel:
         return False
@@ -97,20 +100,10 @@ def _can_add_candidate(
 
 def _prepare_pools(
     candidates: List[DiscoveryCandidateDomain],
-    min_related: float,
-    min_adjacent: float,
-    min_exploratory: float,
 ) -> Tuple[List[DiscoveryCandidateDomain], List[DiscoveryCandidateDomain], List[DiscoveryCandidateDomain]]:
-    """Filtra y prepara las tres listas de candidatos por banda real ordenadas determinísticamente."""
+    """Deduplica y prepara las tres listas de candidatos elegibles por banda real ordenadas determinísticamente."""
     unique_by_id: Dict[str, DiscoveryCandidateDomain] = {}
     for c in candidates:
-        if c.band == Band.RELATED and c.score < min_related:
-            continue
-        if c.band == Band.ADJACENT and c.score < min_adjacent:
-            continue
-        if c.band == Band.EXPLORATORY and c.score < min_exploratory:
-            continue
-
         vid = c.youtube_video_id
         if vid not in unique_by_id or _get_sort_key(c) < _get_sort_key(unique_by_id[vid]):
             unique_by_id[vid] = c
@@ -178,31 +171,20 @@ def select_batch_diverse(
     target_exploratory: int = 1,
     max_videos_per_channel: int = 2,
     duplicate_title_threshold: float = 0.70,
-    min_score_related: float = 0.0,
-    min_score_adjacent: float = 0.0,
-    min_score_exploratory: float = 0.0,
 ) -> Tuple[List[DiscoveryCandidateDomain], Dict[str, Any], Optional[str]]:
     """
     Selecciona un lote diverso y determinista de candidatos aplicando la matriz de fallback estricta.
     """
-    rel, adj, exp = target_related, target_adjacent, target_exploratory
-    if rel + adj + exp > target_total:
-        rel = min(rel, target_total)
-        adj = min(adj, max(0, target_total - rel))
-        exp = min(exp, max(0, target_total - rel - adj))
-
     config = SelectionConfig(
         total=target_total,
-        related=rel,
-        adjacent=adj,
-        exploratory=exp,
+        related=target_related,
+        adjacent=target_adjacent,
+        exploratory=target_exploratory,
         max_per_channel=max_videos_per_channel,
         duplicate_title_threshold=duplicate_title_threshold,
     )
 
-    pool_rel, pool_adj, pool_exp = _prepare_pools(
-        candidates, min_score_related, min_score_adjacent, min_score_exploratory
-    )
+    pool_rel, pool_adj, pool_exp = _prepare_pools(candidates)
 
     selected_rel: List[DiscoveryCandidateDomain] = []
     selected_adj: List[DiscoveryCandidateDomain] = []
@@ -215,26 +197,26 @@ def select_batch_diverse(
     _ = _fill_quota(pool_exp, config.exploratory, selected_exp, all_selected, config)
 
     # 2. Matriz de Fallback Estricta
-    # A) Faltante related -> cubierto únicamente con adjacent remanente
     needed_rel = config.related - len(selected_rel)
     rem_adj, _ = _apply_fallback_step(rem_adj, needed_rel, selected_rel, all_selected, config)
 
-    # B) Faltante adjacent -> cubierto únicamente con related remanente
     needed_adj = config.adjacent - len(selected_adj)
     rem_rel, _ = _apply_fallback_step(rem_rel, needed_adj, selected_adj, all_selected, config)
 
-    # C) Faltante exploratory -> cubierto primero con adjacent remanente, luego related remanente
     needed_exp = config.exploratory - len(selected_exp)
     if needed_exp > 0:
         rem_adj, needed_exp = _apply_fallback_step(rem_adj, needed_exp, selected_exp, all_selected, config)
     if needed_exp > 0:
         rem_rel, needed_exp = _apply_fallback_step(rem_rel, needed_exp, selected_exp, all_selected, config)
 
-    # 3. Asignar Ranks Consecutivos
-    for idx, c in enumerate(all_selected, start=1):
+    # 3. Construir lista final en orden de cupos de selección (related -> adjacent -> exploratory)
+    final_list = selected_rel + selected_adj + selected_exp
+
+    # 4. Asignar Ranks Consecutivos 1..N
+    for idx, c in enumerate(final_list, start=1):
         c.selection_rank = idx
 
-    # 4. Contar selectedByBand por la BANDA REAL del candidato
+    # 5. Contar selectedByBand por la BANDA REAL del candidato
     counts = {
         "targetByBand": {
             "related": config.related,
@@ -242,11 +224,11 @@ def select_batch_diverse(
             "exploratory": config.exploratory,
         },
         "selectedByBand": {
-            "related": sum(1 for c in all_selected if c.band == Band.RELATED),
-            "adjacent": sum(1 for c in all_selected if c.band == Band.ADJACENT),
-            "exploratory": sum(1 for c in all_selected if c.band == Band.EXPLORATORY),
+            "related": sum(1 for c in final_list if c.band == Band.RELATED),
+            "adjacent": sum(1 for c in final_list if c.band == Band.ADJACENT),
+            "exploratory": sum(1 for c in final_list if c.band == Band.EXPLORATORY),
         },
     }
 
-    shortfall = "insufficient_candidates" if len(all_selected) < config.total else None
-    return all_selected, counts, shortfall
+    shortfall = "insufficient_candidates" if len(final_list) < config.total else None
+    return final_list, counts, shortfall

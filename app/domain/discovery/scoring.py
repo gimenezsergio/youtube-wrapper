@@ -1,9 +1,15 @@
 from datetime import datetime, timezone
 from typing import Optional, Tuple
 
-from app.domain.discovery.models import Band, DiscoveryCandidateDomain
+from app.domain.discovery.models import Band, DiscoveryCandidateDomain, SignalType
 from app.domain.discovery.normalization import normalize_term
 from app.domain.discovery.signals import CategorySignals
+
+SIGNAL_WEIGHTS = {
+    SignalType.MORE_LIKE_THIS: 15.0,
+    SignalType.WATCHED: 8.0,
+    SignalType.OPENED: 4.0,
+}
 
 
 def clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
@@ -14,9 +20,7 @@ def clamp(value: float, min_val: float = 0.0, max_val: float = 1.0) -> float:
 def _check_exclusions(video: dict, signals: CategorySignals, norm_title: str, norm_desc: str) -> bool:
     """Retorna True si el video debe ser excluido antes de ser puntuado."""
     duration = video.get("duration_seconds")
-    if duration is not None and duration <= 180:
-        return True
-    if "duration_seconds" in video and video["duration_seconds"] is None:
+    if duration is None or duration <= 180:
         return True
 
     channel_id = video.get("channel_id")
@@ -55,23 +59,25 @@ def _calculate_thematic_score(
     kw_scores = []
     for kw, weight in signals.positive_keywords:
         w_norm = clamp(weight, 0.0, 1.0)
-        if kw in norm_title:
-            matched_pos_keywords.append((kw, weight))
-            kw_scores.append(35.0 * w_norm)
-        elif kw in norm_desc:
-            matched_pos_keywords.append((kw, weight))
-            kw_scores.append(28.0 * w_norm)
+        if w_norm > 0:
+            if kw in norm_title:
+                matched_pos_keywords.append((kw, weight))
+                kw_scores.append(35.0 * w_norm)
+            elif kw in norm_desc:
+                matched_pos_keywords.append((kw, weight))
+                kw_scores.append(28.0 * w_norm)
 
     matched_topics = []
     topic_scores = []
     for topic, weight in signals.approved_exploration_topics:
         w_norm = clamp(weight, 0.0, 1.0)
-        if topic in norm_title:
-            matched_topics.append((topic, weight))
-            topic_scores.append(30.0 * w_norm)
-        elif topic in norm_desc:
-            matched_topics.append((topic, weight))
-            topic_scores.append(24.0 * w_norm)
+        if w_norm > 0:
+            if topic in norm_title:
+                matched_topics.append((topic, weight))
+                topic_scores.append(30.0 * w_norm)
+            elif topic in norm_desc:
+                matched_topics.append((topic, weight))
+                topic_scores.append(24.0 * w_norm)
 
     all_scores = kw_scores + topic_scores
     thematic_score = min(35.0, max(all_scores)) if all_scores else 0.0
@@ -80,22 +86,23 @@ def _calculate_thematic_score(
 
 def _calculate_seed_similarity(norm_title: str, norm_channel_title: str, signals: CategorySignals) -> float:
     """Calcula la similitud con canales semilla (0..20) usando coincidencia o Jaccard."""
-    is_seed_channel = (
-        norm_channel_title in signals.seed_channel_titles or
-        any(norm_channel_title in desc for desc in signals.seed_channel_descriptions)
-    )
-    if is_seed_channel:
-        return 20.0
+    if norm_channel_title:
+        is_seed_channel = (
+            norm_channel_title in signals.seed_channel_titles or
+            any(norm_channel_title in desc for desc in signals.seed_channel_descriptions if desc)
+        )
+        if is_seed_channel:
+            return 20.0
 
-    # Jaccard con títulos de canales semilla
     title_tokens = set(norm_title.split())
     max_jaccard = 0.0
-    for seed_title in signals.seed_channel_titles:
-        seed_tokens = set(seed_title.split())
-        if title_tokens and seed_tokens:
-            sim = len(title_tokens.intersection(seed_tokens)) / len(title_tokens.union(seed_tokens))
-            if sim > max_jaccard:
-                max_jaccard = sim
+    if title_tokens:
+        for seed_title in signals.seed_channel_titles:
+            seed_tokens = set(seed_title.split())
+            if seed_tokens:
+                sim = len(title_tokens.intersection(seed_tokens)) / len(title_tokens.union(seed_tokens))
+                if sim > max_jaccard:
+                    max_jaccard = sim
 
     if max_jaccard >= 0.50:
         return 20.0
@@ -107,33 +114,32 @@ def _calculate_seed_similarity(norm_title: str, norm_channel_title: str, signals
     return 0.0
 
 
-def _calculate_local_signals_score(channel_id: Optional[int], norm_title: str, signals: CategorySignals) -> float:
-    """Calcula el aporte de señales locales recientes (0..15)."""
+def _calculate_local_signals_score(
+    channel_id: Optional[int], norm_title: str, signals: CategorySignals
+) -> float:
+    """Calcula el aporte de señales locales recientes diferenciadas (opened=4, watched=8, more_like_this=15)."""
     scores = []
-    if signals.local_signal_scores:
-        if signals.local_signal_scores.get("more_like_this_expired"):
-            pass
-        elif "more_like_this" in signals.local_signal_scores:
-            scores.append(clamp(signals.local_signal_scores["more_like_this"], 0.0, 15.0))
-        elif "watched" in signals.local_signal_scores:
-            scores.append(clamp(signals.local_signal_scores["watched"], 0.0, 15.0))
-        elif "opened" in signals.local_signal_scores:
-            scores.append(clamp(signals.local_signal_scores["opened"], 0.0, 15.0))
+    if signals.local_signals:
+        for ls in signals.local_signals:
+            matches_ch = channel_id and (ls.channel_id == channel_id)
+            norm_ls_title = normalize_term(ls.title) if ls.title else ""
+            matches_t = norm_ls_title and (norm_ls_title in norm_title or norm_title in norm_ls_title)
+            if matches_ch or matches_t:
+                scores.append(SIGNAL_WEIGHTS.get(ls.signal_type, 0.0))
 
-    has_positive = (
-        (channel_id and channel_id in signals.positive_channel_ids) or
-        any(pt in norm_title for pt in signals.positive_video_titles)
-    )
-    if has_positive and not scores:
-        scores.append(15.0)
+    if not scores and signals.local_signal_scores:
+        for st_name, val in [("more_like_this", 15.0), ("watched", 8.0), ("opened", 4.0)]:
+            if st_name in signals.local_signal_scores:
+                scores.append(val)
+                break
 
     return min(15.0, max(scores)) if scores else 0.0
 
 
 def _calculate_freshness_score(published_str: Optional[str], now: datetime) -> float:
-    """Calcula actualidad (0..10) según la antigüedad de publicación."""
+    """Calcula actualidad (0..10) según la antigüedad de publicación. Si ausente o inválida -> 0."""
     if not published_str:
-        return 10.0
+        return 0.0
     try:
         pub_date_str = published_str.replace("Z", "+00:00")
         pub_date = datetime.fromisoformat(pub_date_str)
@@ -220,11 +226,12 @@ def score_and_classify_candidate(
     if now is None:
         now = datetime.now(timezone.utc)
 
-    title = video.get("title", "")
-    description = video.get("description", "")
+    title = video.get("title", "") or ""
+    description = video.get("description", "") or ""
+    thumbnail_url = video.get("thumbnail_url", "") or ""
     norm_title = normalize_term(title)
     norm_desc = normalize_term(description)
-    channel_title = video.get("channel_title", "")
+    channel_title = video.get("channel_title", "") or ""
     norm_channel_title = normalize_term(channel_title)
     channel_id = video.get("channel_id")
 
@@ -240,14 +247,15 @@ def score_and_classify_candidate(
     local_score = _calculate_local_signals_score(channel_id, norm_title, signals)
     freshness_score = _calculate_freshness_score(video.get("published_at"), now)
 
+    # Feedback positivo adicional de +10 SOLO para more_like_this reciente del mismo canal y categoría
     feedback_pos_score = 0.0
-    if channel_id and channel_id in signals.positive_channel_ids:
+    if channel_id and channel_id in signals.more_like_this_channel_ids:
         feedback_pos_score = 10.0
 
-    has_desc = bool(video.get("description")) if "description" in video else True
-    has_thumb = bool(video.get("thumbnail_url")) if "thumbnail_url" in video else True
-    diversity_score = 5.0 if (video.get("video_id") not in signals.watched_video_ids) else 0.0
-    if has_desc and has_thumb:
+    # Novedad (+5 si no visto) y completitud (+5 si description y thumbnail_url presentes no vacías)
+    video_id = video.get("video_id")
+    diversity_score = 5.0 if (video_id is None or video_id not in signals.watched_video_ids) else 0.0
+    if description.strip() and thumbnail_url.strip():
         diversity_score += 5.0
 
     penalty = _calculate_penalties(video, channel_id, signals)
@@ -265,7 +273,7 @@ def score_and_classify_candidate(
     if band is None:
         return None
 
-    # 4. Umbrales Mínimos por Banda
+    # 4. Umbrales Mínimos por Banda (Frontera única de elegibilidad)
     if band == Band.RELATED and final_score < min_score_related:
         return None
     if band == Band.ADJACENT and final_score < min_score_adjacent:

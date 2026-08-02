@@ -286,16 +286,16 @@ class DiscoveryService:
                 target_related=mix_related,
                 target_adjacent=mix_adjacent,
                 target_exploratory=mix_exploratory,
-                max_videos_per_channel=max_videos_per_channel,
-                min_score_related=min_related,
-                min_score_adjacent=min_adjacent,
-                min_score_exploratory=min_exploratory
+                max_videos_per_channel=max_videos_per_channel
             )
 
             # Degradación segura: Si el nuevo lote queda vacío (0 candidatos), NO lo persistimos
             # ni expiramos las recomendaciones anteriores. Conservamos el lote previo intacto.
             if len(selected) == 0:
-                logger.warning(f"Categoría {cat_id} no produjo candidatos nuevos válidos. Se conserva el lote anterior. Motivo: {shortfall or 'no_results'}")
+                logger.warning(
+                f"Categoría {cat_id} no produjo candidatos nuevos válidos. "
+                f"Se conserva el lote anterior. Motivo: {shortfall or 'no_results'}"
+            )
                 stats_by_category[cat_id] = {
                     "selected": 0,
                     "shortfall": shortfall or "no_results",

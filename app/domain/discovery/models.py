@@ -17,18 +17,39 @@ class Band(Enum):
             return "Para explorar"
         return "Desconocido"
 
+
 class SignalType(Enum):
     OPENED = "opened"
     WATCHED = "watched"
     MORE_LIKE_THIS = "more_like_this"
     LESS_LIKE_THIS = "less_like_this"
 
+
 class LocalSignal:
-    def __init__(self, video_id: int, signal_type: SignalType, days_ago: int, weight: float = 1.0):
+    def __init__(
+        self,
+        video_id: Optional[int] = None,
+        youtube_video_id: Optional[str] = None,
+        channel_id: Optional[int] = None,
+        youtube_channel_id: Optional[str] = None,
+        title: Optional[str] = None,
+        signal_type: SignalType = SignalType.OPENED,
+        created_at: Optional[str] = None,
+        days_ago: int = 0,
+        weight: float = 1.0,
+    ):
         self.video_id = video_id
-        self.signal_type = signal_type
+        self.youtube_video_id = youtube_video_id
+        self.channel_id = channel_id
+        self.youtube_channel_id = youtube_channel_id
+        self.title = title
+        self.signal_type = (
+            signal_type if isinstance(signal_type, SignalType) else SignalType(signal_type)
+        )
+        self.created_at = created_at
         self.days_ago = days_ago
         self.weight = weight
+
 
 class DiscoveryCandidateDomain:
     def __init__(
@@ -47,7 +68,7 @@ class DiscoveryCandidateDomain:
         band: Band = Band.RELATED,
         reasons: Optional[List[str]] = None,
         selection_rank: Optional[int] = None,
-        category_id: int = 0
+        category_id: int = 0,
     ):
         self.video_id = video_id
         self.youtube_video_id = youtube_video_id

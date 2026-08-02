@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from app.domain.discovery.models import Band, DiscoveryCandidateDomain
+from app.domain.discovery.models import Band, DiscoveryCandidateDomain, LocalSignal, SignalType
 from app.domain.discovery.signals import CategorySignals
 
 
@@ -31,7 +31,7 @@ class DiscoveryRepository:
         return {row["youtube_video_id"] for row in cursor.fetchall()}
 
     @staticmethod
-    def get_category_signals(db, category_id: int, signal_window_days: int = 90) -> CategorySignals:
+    def get_category_signals(db, category_id: int, signal_window_days: int = 90) -> CategorySignals:  # noqa: C901
         """
         Agrega todas las señales de la categoría (palabras clave, canales semilla,
         videos vistos/abiertos y feedback) dentro de la ventana de días indicada.
@@ -66,7 +66,9 @@ class DiscoveryRepository:
             SELECT c.id, c.title, c.description
             FROM channels c
             JOIN channel_categories cc ON c.id = cc.channel_id
-            WHERE cc.category_id = ? AND c.is_blocked = 0
+            WHERE cc.category_id = ? AND c.is_blocked = 0 AND (
+                c.is_subscribed = 1 OR c.is_locally_followed = 1 OR cc.source = 'manual'
+            )
         """, (category_id,))
         seed_ids = set()
         seed_titles = []
@@ -78,20 +80,38 @@ class DiscoveryRepository:
             if row["description"]:
                 seed_descs.append(row["description"])
 
-        # 4. Videos vistos/abiertos recientemente (señales locales positivas débiles)
+        # 4. Videos vistos/abiertos recientemente (señales locales positivas diferenciadas)
         cursor = db.execute("""
-            SELECT v.title, v.channel_id
+            SELECT v.id as video_id, v.title, v.channel_id, vus.opened_at, vus.watched, vus.updated_at
             FROM video_user_state vus
             JOIN videos v ON vus.video_id = v.id
             JOIN channel_categories cc ON v.channel_id = cc.channel_id
-            WHERE cc.category_id = ? AND (vus.opened_at >= ? OR vus.updated_at >= ?)
+            WHERE cc.category_id = ? AND (vus.opened_at >= ? OR vus.watched = 1 OR vus.updated_at >= ?)
         """, (category_id, limit_date, limit_date))
         pos_video_titles = []
         pos_channel_ids = set()
+        local_signals = []
+
         for row in cursor.fetchall():
             if row["title"]:
                 pos_video_titles.append(row["title"])
-            pos_channel_ids.add(row["channel_id"])
+            if row["channel_id"]:
+                pos_channel_ids.add(row["channel_id"])
+
+            if row["watched"] == 1:
+                local_signals.append(LocalSignal(
+                    video_id=row["video_id"],
+                    channel_id=row["channel_id"],
+                    title=row["title"],
+                    signal_type=SignalType.WATCHED
+                ))
+            elif row["opened_at"] and row["opened_at"] >= limit_date:
+                local_signals.append(LocalSignal(
+                    video_id=row["video_id"],
+                    channel_id=row["channel_id"],
+                    title=row["title"],
+                    signal_type=SignalType.OPENED
+                ))
 
         # 5. Feedback explícito de descubrimiento
         cursor = db.execute("""
@@ -102,6 +122,7 @@ class DiscoveryRepository:
 
         negative_video_ids = set()
         negative_channel_ids = set()
+        more_like_this_channel_ids = set()
 
         for row in cursor.fetchall():
             act = row["action"]
@@ -113,13 +134,24 @@ class DiscoveryRepository:
                 if cid:
                     negative_channel_ids.add(cid)
             elif act == "more_like_this":
+                if cid:
+                    more_like_this_channel_ids.add(cid)
+                v_title = None
                 if vid:
-                    # Traer título de video
                     v_cursor = db.execute("SELECT title, channel_id FROM videos WHERE id = ?", (vid,))
                     v_row = v_cursor.fetchone()
                     if v_row:
-                        pos_video_titles.append(v_row["title"])
+                        v_title = v_row["title"]
+                        pos_video_titles.append(v_title)
                         pos_channel_ids.add(v_row["channel_id"])
+                        if v_row["channel_id"]:
+                            more_like_this_channel_ids.add(v_row["channel_id"])
+                local_signals.append(LocalSignal(
+                    video_id=vid,
+                    channel_id=cid,
+                    title=v_title,
+                    signal_type=SignalType.MORE_LIKE_THIS
+                ))
 
         # 6. Bloqueos globales y ocultaciones
         blocked_channel_ids = DiscoveryRepository.get_blocked_channels(db)
@@ -130,7 +162,10 @@ class DiscoveryRepository:
         hidden_video_ids = set()
         if hidden_vids_yt:
             placeholders = ",".join("?" for _ in hidden_vids_yt)
-            v_cursor = db.execute(f"SELECT id FROM videos WHERE youtube_video_id IN ({placeholders})", list(hidden_vids_yt))
+            v_cursor = db.execute(
+                f"SELECT id FROM videos WHERE youtube_video_id IN ({placeholders})",
+                list(hidden_vids_yt)
+            )
             hidden_video_ids = {row["id"] for row in v_cursor.fetchall()}
 
         # Canales seguidos globalmente
@@ -156,7 +191,9 @@ class DiscoveryRepository:
             blocked_channel_ids=blocked_channel_ids,
             hidden_video_ids=hidden_video_ids,
             followed_channel_ids=followed_channel_ids,
-            watched_video_ids=watched_video_ids
+            watched_video_ids=watched_video_ids,
+            local_signals=local_signals,
+            more_like_this_channel_ids=more_like_this_channel_ids
         )
 
     @staticmethod
@@ -356,7 +393,7 @@ class DiscoveryRepository:
         return cursor.lastrowid
 
     @staticmethod
-    def get_active_batch_recommendations(
+    def get_active_batch_recommendations(  # noqa: C901
         db,
         category_id: Optional[int] = None,
         band: Optional[str] = None,

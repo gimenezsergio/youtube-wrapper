@@ -1,5 +1,6 @@
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
+from app.domain.discovery.models import LocalSignal
 from app.domain.discovery.normalization import normalize_term
 
 
@@ -21,6 +22,8 @@ class CategorySignals:
         hidden_video_ids: Set[int],
         followed_channel_ids: Optional[Set[int]] = None,
         watched_video_ids: Optional[Set[int]] = None,
+        local_signals: Optional[List[Any]] = None,
+        more_like_this_channel_ids: Optional[Set[int]] = None,
         local_signal_scores: Optional[Dict[str, float]] = None,
     ):
         self.category_id = category_id
@@ -33,7 +36,9 @@ class CategorySignals:
             normalize_term(k) for k in negative_keywords if normalize_term(k)
         ]
         self.approved_exploration_topics = [
-            (normalize_term(t), float(w)) for t, w in approved_exploration_topics if normalize_term(t)
+            (normalize_term(t), float(w))
+            for t, w in approved_exploration_topics
+            if normalize_term(t)
         ]
 
         self.seed_channel_ids = seed_channel_ids or set()
@@ -55,4 +60,14 @@ class CategorySignals:
         self.hidden_video_ids = hidden_video_ids or set()
         self.followed_channel_ids = followed_channel_ids or set()
         self.watched_video_ids = watched_video_ids or set()
+
+        self.local_signals: List[LocalSignal] = []
+        if local_signals:
+            for s in local_signals:
+                if isinstance(s, LocalSignal):
+                    self.local_signals.append(s)
+                elif isinstance(s, dict):
+                    self.local_signals.append(LocalSignal(**s))
+
+        self.more_like_this_channel_ids = more_like_this_channel_ids or set()
         self.local_signal_scores = local_signal_scores or {}
