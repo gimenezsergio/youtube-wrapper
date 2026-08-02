@@ -5,69 +5,8 @@ import pytest
 from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
 from app.services.subscription_service import SubscriptionService
+from tests.fakes.youtube_gateway import FakeYouTubeGateway
 
-
-# Fake YouTube Gateway determinista para pruebas
-class FakeYouTubeGateway:
-    def __init__(self):
-        # Estado simulación
-        self.subscriptions_responses = [
-            # Página 1
-            [
-                {"youtube_channel_id": "UC_A", "title": "Canal A"},
-                {"youtube_channel_id": "UC_B", "title": "Canal B"}
-            ],
-            # Página 2
-            [
-                {"youtube_channel_id": "UC_C", "title": "Canal C"}
-            ]
-        ]
-
-        self.channels_details = {
-            "UC_A": {
-                "youtube_channel_id": "UC_A",
-                "title": "Canal A Completo",
-                "description": "Descripcion A",
-                "thumbnail_url": "thumb_a.jpg",
-                "uploads_playlist_id": "UU_A"
-            },
-            "UC_B": {
-                "youtube_channel_id": "UC_B",
-                "title": "Canal B Completo",
-                "description": "Descripcion B",
-                "thumbnail_url": "thumb_b.jpg",
-                "uploads_playlist_id": "UU_B"
-            },
-            "UC_C": {
-                "youtube_channel_id": "UC_C",
-                "title": "Canal C Completo",
-                "description": "Descripcion C",
-                "thumbnail_url": "thumb_c.jpg",
-                "uploads_playlist_id": "UU_C"
-            },
-            "UC_D": {
-                "youtube_channel_id": "UC_D",
-                "title": "Canal D Completo",
-                "description": "Descripcion D",
-                "thumbnail_url": "thumb_d.jpg",
-                "uploads_playlist_id": "UU_D"
-            }
-        }
-        self.refresh_calls = 0
-
-    def refresh_access_token(self, refresh_token):
-        self.refresh_calls += 1
-        return {"access_token": "new-mock-access-token", "expires_in": 3600}
-
-    def fetch_subscriptions(self, access_token):
-        # Retorna el aplanado de sus respuestas simuladas
-        result = []
-        for page in self.subscriptions_responses:
-            result.extend(page)
-        return result
-
-    def fetch_channels_details(self, access_token, channel_ids):
-        return [self.channels_details[cid] for cid in channel_ids if cid in self.channels_details]
 
 @pytest.fixture
 def setup_mock_credentials(app):

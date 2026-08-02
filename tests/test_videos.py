@@ -5,57 +5,7 @@ import pytest
 from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
 from app.services.video_service import VideoService
-
-
-class FakeYouTubeGateway:
-    def __init__(self):
-        self.playlist_items = {
-            "UU_A": {
-                "items": [
-                    {
-                        "youtube_video_id": "vid_1",
-                        "title": "Video 1",
-                        "description": "Desc 1",
-                        "published_at": "2026-07-30T10:00:00Z",
-                        "thumbnail_url": "t1"
-                    },
-                    {
-                        "youtube_video_id": "vid_2",
-                        "title": "Video 2",
-                        "description": "Desc 2",
-                        "published_at": "2026-07-30T09:00:00Z",
-                        "thumbnail_url": "t2"
-                    }
-                ],
-                "nextPageToken": None
-            },
-            "UU_B": {
-                "items": [
-                    {
-                        "youtube_video_id": "vid_3",
-                        "title": "Video 3",
-                        "description": "Desc 3",
-                        "published_at": "2026-07-30T08:00:00Z",
-                        "thumbnail_url": "t3"
-                    }
-                ],
-                "nextPageToken": None
-            }
-        }
-        self.video_details = [
-            {"youtube_video_id": "vid_1", "duration_seconds": 600, "content_type": "video"},
-            {"youtube_video_id": "vid_2", "duration_seconds": 240, "content_type": "video"},
-            {"youtube_video_id": "vid_3", "duration_seconds": 1800, "content_type": "live"}
-        ]
-
-    def refresh_access_token(self, refresh_token):
-        return {"access_token": "new-access-token", "expires_in": 3600}
-
-    def fetch_playlist_items(self, access_token, playlist_id, limit=50, page_token=None):
-        return self.playlist_items.get(playlist_id, {"items": [], "nextPageToken": None})
-
-    def fetch_videos_details(self, access_token, video_ids):
-        return [d for d in self.video_details if d["youtube_video_id"] in video_ids]
+from tests.fakes.youtube_gateway import FakeYouTubeGateway
 
 
 @pytest.fixture

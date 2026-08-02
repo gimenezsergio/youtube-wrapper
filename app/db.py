@@ -18,8 +18,9 @@ def get_db_connection(db_path=None):
     # Configurar para que devuelva diccionarios en lugar de tuplas
     conn.row_factory = sqlite3.Row
 
-    # Habilitar claves foráneas y WAL
+    # Habilitar claves foráneas, busy timeout y WAL
     conn.execute("PRAGMA foreign_keys = ON;")
+    conn.execute("PRAGMA busy_timeout = 10000;")
 
     # Nota: WAL no se puede habilitar en bases de datos ":memory:"
     if db_path != ":memory:":

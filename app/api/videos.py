@@ -353,7 +353,7 @@ def list_videos():
     category_id = request.args.get("categoryId", type=int)
     channel_ids_str = request.args.get("channelIds", type=str)
     watched = request.args.get("watched", default="all", type=str)
-    origin = request.args.get("origin", default="all", type=str)
+    origin = request.args.get("origin", default="followed", type=str)
     view = request.args.get("view", default="feed", type=str)
     cursor = request.args.get("cursor", type=str)
     limit = min(request.args.get("limit", default=30, type=int), 100)

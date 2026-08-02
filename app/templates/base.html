@@ -221,6 +221,20 @@
                         </div>
                     </div>
 
+                    <div id="category-topics-section" class="form-group hidden" style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 15px; margin-top: 15px;">
+                        <label>Temas de Exploración Adyacentes</label>
+                        <p class="form-instruction">Agrega temas manualmente o aprueba/rechaza temas propuestos automáticamente.</p>
+                        
+                        <div class="topic-add-inputs" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                            <input type="text" id="topic-term-input" placeholder="Nuevo tema (Ej: Diseño)" style="flex: 1; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; padding: 6px 12px;">
+                            <button type="button" id="btn-add-topic" class="btn-secondary btn-sm">Añadir Tema</button>
+                        </div>
+                        
+                        <div id="topics-lists-container" style="display: flex; flex-direction: column; gap: 15px;">
+                            <!-- Listas de aprobados, pendientes y rechazados -->
+                        </div>
+                    </div>
+
                     <div class="form-group">
                         <div id="category-form-error" class="form-field-error"></div>
                     </div>

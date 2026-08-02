@@ -1,6 +1,33 @@
+import time
+from typing import List
+
 import requests
 from flask import current_app
 
+
+class YouTubeAPIError(Exception):
+    """Clase base para errores de la API de YouTube."""
+    pass
+
+class YouTubeAuthorizationError(YouTubeAPIError):
+    """Error de autorización o token inválido/expirado (401)."""
+    pass
+
+class YouTubeQuotaError(YouTubeAPIError):
+    """Error de cuota excedida (403)."""
+    pass
+
+class YouTubeTransientError(YouTubeAPIError):
+    """Error transitorio de red o del servidor remoto (500, 503, timeout)."""
+    pass
+
+class YouTubeNotFoundError(YouTubeAPIError):
+    """El recurso solicitado no fue encontrado (404)."""
+    pass
+
+class YouTubeInvalidResponseError(YouTubeAPIError):
+    """La respuesta remota es inválida o no coincide con el formato esperado."""
+    pass
 
 class YouTubeGateway:
     def __init__(self, client_id=None, client_secret=None):
@@ -300,4 +327,108 @@ class YouTubeGateway:
         seconds = int(parts.get('seconds') or 0)
 
         return days * 86400 + hours * 3600 + minutes * 60 + seconds
+
+    def _request_with_retry(self, method: str, url: str, params: dict = None, headers: dict = None, data: dict = None) -> requests.Response:
+        """Realiza una petición HTTP a YouTube con reintentos para fallos transitorios."""
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                response = requests.request(method, url, params=params, headers=headers, data=data, timeout=10)
+
+                # Clasificar errores
+                if response.status_code == 200:
+                    return response
+                elif response.status_code == 401:
+                    raise YouTubeAuthorizationError("Token expirado o no autorizado.")
+                elif response.status_code == 403:
+                    err_text = response.text.lower()
+                    if "quota" in err_text or "ratelimit" in err_text:
+                        raise YouTubeQuotaError("Cuota de la API de YouTube excedida.")
+                    raise YouTubeAPIError(f"Error 403 de YouTube: {response.text}")
+                elif response.status_code == 404:
+                    raise YouTubeNotFoundError("Recurso de YouTube no encontrado.")
+                elif response.status_code in (500, 502, 503, 504):
+                    if attempt < max_attempts - 1:
+                        time.sleep((attempt + 1) * 1.5)
+                        continue
+                    raise YouTubeTransientError(f"Servidor de YouTube reportó error {response.status_code}.")
+                else:
+                    raise YouTubeAPIError(f"Error inesperado de YouTube: {response.text}")
+
+            except (requests.Timeout, requests.ConnectionError) as e:
+                if attempt < max_attempts - 1:
+                    time.sleep((attempt + 1) * 1.5)
+                    continue
+                raise YouTubeTransientError(f"Fallo transitorio de red: {e}")
+
+        raise YouTubeTransientError("Fallo tras reintentos.")
+
+    def search_videos(
+        self,
+        access_token: str,
+        q: str,
+        published_after: str = None,
+        limit: int = 25,
+        region_code: str = 'AR',
+        relevance_language: str = 'es'
+    ) -> List[dict]:
+        """
+        Busca videos públicos usando la API de búsqueda (search.list).
+        Retorna una lista de diccionarios normalizados.
+        """
+        url = "https://www.googleapis.com/youtube/v3/search"
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+        params = {
+            "part": "snippet",
+            "type": "video",
+            "q": q,
+            "maxResults": min(limit, 50),
+            "regionCode": region_code,
+            "relevanceLanguage": relevance_language
+        }
+        if published_after:
+            params["publishedAfter"] = published_after
+
+        current_app.logger.info(f"YouTube API Call: search.list con consulta '{q}'")
+        response = self._request_with_retry("GET", url, params=params, headers=headers)
+
+        try:
+            data = response.json()
+        except Exception:
+            raise YouTubeInvalidResponseError("Respuesta de búsqueda no es JSON válido.")
+
+        items = []
+        for item in data.get("items", []):
+            try:
+                video_id = item["id"]["videoId"]
+                snippet = item["snippet"]
+                title = snippet["title"]
+                description = snippet["description"]
+                published_at = snippet["publishedAt"]
+                channel_title = snippet["channelTitle"]
+                youtube_channel_id = snippet["channelId"]
+
+                # Obtener thumbnail
+                thumbnails = snippet.get("thumbnails", {})
+                thumbnail_url = (
+                    thumbnails.get("high", {}).get("url") or
+                    thumbnails.get("medium", {}).get("url") or
+                    thumbnails.get("default", {}).get("url")
+                )
+
+                items.append({
+                    "youtube_video_id": video_id,
+                    "title": title,
+                    "description": description,
+                    "published_at": published_at,
+                    "thumbnail_url": thumbnail_url,
+                    "channel_title": channel_title,
+                    "youtube_channel_id": youtube_channel_id
+                })
+            except KeyError as e:
+                raise YouTubeInvalidResponseError(f"Formato de item de búsqueda inválido: falta {e}")
+
+        return items
 

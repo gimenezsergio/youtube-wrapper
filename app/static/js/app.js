@@ -329,6 +329,85 @@ function renderSettingsView() {
         </div>
     `;
 
+    // Fetch and display exclusions dynamically
+    const exclusionsContainer = document.createElement("div");
+    exclusionsContainer.className = "channel-card";
+    exclusionsContainer.style.cssText = "width: 100%; box-sizing: border-box; padding: 20px; margin-top: 20px;";
+    exclusionsContainer.innerHTML = `
+        <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
+        <p class="form-instruction">Gestiona los canales bloqueados y videos ocultados de tu feed.</p>
+        <div id="settings-exclusions-list" style="margin-top: 15px; color: #cbd5e1;">Cargando exclusiones...</div>
+    `;
+    viewContainer.querySelector(".channels-grid").appendChild(exclusionsContainer);
+
+    apiFetch("/api/v1/settings/discovery-exclusions")
+        .then(r => r.json())
+        .then(data => {
+            const listDiv = document.getElementById("settings-exclusions-list");
+            if (data.blockedChannels.length === 0 && data.hiddenVideos.length === 0) {
+                listDiv.innerText = "No tienes exclusiones activas.";
+                return;
+            }
+            
+            let html = "";
+            if (data.blockedChannels.length > 0) {
+                html += `<h4 style="color: #fff; margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                data.blockedChannels.forEach(c => {
+                    html += `
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span>${escapeHtml(c.title)}</span>
+                            <button class="btn-secondary btn-sm btn-unblock-chan" data-cid="${c.id}" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">Desbloquear</button>
+                        </li>
+                    `;
+                });
+                html += `</ul>`;
+            }
+            
+            if (data.hiddenVideos.length > 0) {
+                html += `<h4 style="color: #fff; margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                data.hiddenVideos.forEach(v => {
+                    html += `
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                            <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%;">${escapeHtml(v.title)}</span>
+                            <button class="btn-secondary btn-sm btn-restore-vid" data-vid="${v.id}" data-catid="${v.category_id}">Restaurar</button>
+                        </li>
+                    `;
+                });
+                html += `</ul>`;
+            }
+            
+            listDiv.innerHTML = html;
+            
+            // Add listeners
+            listDiv.querySelectorAll(".btn-unblock-chan").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const cid = btn.dataset.cid;
+                    const resp = await apiFetch(`/api/v1/channels/${cid}/block`, {
+                        method: "PUT",
+                        body: { blocked: false }
+                    });
+                    if (resp.ok) {
+                        showNotification("Canal desbloqueado.");
+                        renderSettingsView();
+                    }
+                });
+            });
+            
+            listDiv.querySelectorAll(".btn-restore-vid").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const vid = btn.dataset.vid;
+                    const catid = btn.dataset.catid;
+                    const resp = await apiFetch(`/api/v1/discoveries/${vid}/hidden?categoryId=${catid}`, {
+                        method: "DELETE"
+                    });
+                    if (resp.status === 204) {
+                        showNotification("Video restaurado.");
+                        renderSettingsView();
+                    }
+                });
+            });
+        });
+
     document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
         triggerSubscriptionSync();
     });
@@ -348,31 +427,254 @@ function renderSettingsView() {
     });
 }
 
-function renderDiscoveriesView() {
+async function renderDiscoveriesView() {
     const viewContainer = document.getElementById("view-container");
     if (!viewContainer) return;
 
+    // Obtener parámetros de la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
+    const band = urlParams.get("band") || "all";
+
+    // Si no hay categorías, mostrar aviso
+    if (currentCategories.length === 0) {
+        viewContainer.innerHTML = `
+            <div class="channels-view">
+                <div class="channels-header">
+                    <h2 class="channels-title">Descubrimiento</h2>
+                </div>
+                <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid rgba(255,255,255,0.05); max-width: 600px; margin: 40px auto;">
+                    <div style="font-size: 2.5rem; margin-bottom: 15px;">✨</div>
+                    <h3 style="color: #fff; margin-top: 0;">Configura una Categoría</h3>
+                    <p style="color: #cbd5e1; line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    // Dibujar layout inicial de filtros
+    let catOptionsHtml = "";
+    currentCategories.forEach(c => {
+        catOptionsHtml += `<option value="${c.id}" ${c.id === catId ? "selected" : ""}>${escapeHtml(c.name)}</option>`;
+    });
+
     viewContainer.innerHTML = `
-        <div class="channels-view">
-            <div class="channels-header">
-                <h2 class="channels-title">Descubrimiento</h2>
+        <div class="discovery-view" style="width:100%; box-sizing:border-box;">
+            <div class="category-header">
+                <div class="category-title-area">
+                    <h2 class="category-title">Descubrimiento</h2>
+                    <p class="category-desc">Videos propuestos fuera de tu biblioteca habitual según tus filtros temáticos.</p>
+                </div>
             </div>
             
-            <div class="category-toolbar" style="margin-bottom: 20px;">
-                <p class="category-desc">Encuentra contenido recomendado según tus preferencias de filtrado y categorías.</p>
+            <div class="category-toolbar" style="margin-bottom: 25px;">
+                <div class="toolbar-filters" style="display: flex; gap: 15px; width: 100%;">
+                    <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
+                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Categoría</label>
+                        <select id="discovery-cat-select" class="select-filter" style="width: 200px;">
+                            ${catOptionsHtml}
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
+                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Banda</label>
+                        <select id="discovery-band-select" class="select-filter" style="width: 180px;">
+                            <option value="all" ${band === "all" ? "selected" : ""}>Todas las bandas</option>
+                            <option value="related" ${band === "related" ? "selected" : ""}>Relacionado</option>
+                            <option value="adjacent" ${band === "adjacent" ? "selected" : ""}>Tema cercano (Adyacente)</option>
+                            <option value="exploratory" ${band === "exploratory" ? "selected" : ""}>Para explorar</option>
+                        </select>
+                    </div>
+                </div>
             </div>
-            
-            <div style="background: rgba(167, 139, 250, 0.05); border: 1px dashed rgba(167, 139, 250, 0.3); border-radius: 12px; padding: 40px 20px; text-align: center; max-width: 600px; margin: 40px auto;">
-                <div style="font-size: 3rem; margin-bottom: 15px;">✨</div>
-                <h3 style="color: #fff; margin-top: 0; font-size: 1.25rem;">Clasificación y sugerencias automáticas</h3>
-                <p class="form-instruction" style="line-height: 1.6; margin-bottom: 0;">
-                    El motor de descubrimiento y sugerencias con IA está planeado para la siguiente etapa de desarrollo (Fase 8). 
-                    Las palabras clave configuradas en tus categorías y los canales que marques como seguidos serán utilizados 
-                    para evaluar y traerte videos coincidentes recomendados.
-                </p>
+
+            <!-- Resumen del lote de esta categoría -->
+            <div id="discovery-batch-summary-box" style="margin-bottom: 25px;"></div>
+
+            <!-- Grid de candidatos -->
+            <div id="discovery-candidates-grid" class="videos-grid">
+                <div class="loading-placeholder-nav">Buscando descubrimientos...</div>
             </div>
         </div>
     `;
+
+    // Event listeners para selectores
+    const catSelect = document.getElementById("discovery-cat-select");
+    const bandSelect = document.getElementById("discovery-band-select");
+
+    const updateFilters = () => {
+        const selectedCat = catSelect.value;
+        const selectedBand = bandSelect.value;
+        navigateToRoute(`/discoveries?categoryId=${selectedCat}&band=${selectedBand}`);
+    };
+
+    catSelect.addEventListener("change", updateFilters);
+    bandSelect.addEventListener("change", updateFilters);
+
+    // Cargar contenido
+    try {
+        const queryUrl = `/api/v1/discoveries?categoryId=${catId}&band=${band}`;
+        const resp = await apiFetch(queryUrl);
+        if (!resp.ok) {
+            throw new Error("No se pudieron cargar los descubrimientos.");
+        }
+        const data = await resp.json();
+        
+        // 1. Mostrar resumen de lote si existe
+        const summaryBox = document.getElementById("discovery-batch-summary-box");
+        const matchingBatch = data.batches.find(b => b.categoryId === catId);
+        if (matchingBatch) {
+            let shortfallHtml = "";
+            if (matchingBatch.shortfallReason) {
+                const reasonsMap = {
+                    "insufficient_candidates": "Faltan videos candidatos en YouTube.",
+                    "insufficient_signals": "No hay suficientes palabras clave o canales configurados en la categoría.",
+                    "no_approved_topics": "No se encontraron temas de exploración aprobados.",
+                    "budget_exhausted": "Límite de búsquedas alcanzado.",
+                    "quota_exhausted": "Cuota diaria de la API de YouTube agotada.",
+                    "external_error": "Error de comunicación con YouTube."
+                };
+                const cleanReason = reasonsMap[matchingBatch.shortfallReason] || matchingBatch.shortfallReason;
+                shortfallHtml = `
+                    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 8px; padding: 12px; font-size: 0.85rem; color: #f87171; margin-top: 10px;">
+                        ⚠️ <strong>Lote incompleto (${matchingBatch.selectedTotal}/8):</strong> ${cleanReason}
+                    </div>
+                `;
+            }
+            summaryBox.innerHTML = `
+                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="color: #94a3b8;">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
+                        <span style="background: rgba(167, 139, 250, 0.15); color: #c084fc; padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
+                    </div>
+                    <div style="margin-top: 10px; display: flex; gap: 20px; color: #cbd5e1;">
+                        <span>Relacionados: <strong>${matchingBatch.selectedByBand.related} / ${matchingBatch.targetByBand.related}</strong></span>
+                        <span>Cercanos: <strong>${matchingBatch.selectedByBand.adjacent} / ${matchingBatch.targetByBand.adjacent}</strong></span>
+                        <span>Explorar: <strong>${matchingBatch.selectedByBand.exploratory} / ${matchingBatch.targetByBand.exploratory}</strong></span>
+                    </div>
+                    ${shortfallHtml}
+                </div>
+            `;
+        } else {
+            summaryBox.innerHTML = `
+                <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: #94a3b8;">
+                    No hay ningún lote de descubrimiento generado recientemente. Presiona <strong>Actualizar</strong> en la barra superior para buscar videos.
+                </div>
+            `;
+        }
+
+        // 2. Mostrar candidatos
+        const grid = document.getElementById("discovery-candidates-grid");
+        if (data.items.length === 0) {
+            grid.innerHTML = '<div class="loading-placeholder-nav" style="grid-column: 1/-1;">No hay videos candidatos en este lote.</div>';
+            return;
+        }
+
+        grid.innerHTML = "";
+        data.items.forEach(item => {
+            const video = item.video;
+            const context = item.context;
+            const durationMin = Math.round(video.durationSeconds / 60) || 0;
+            
+            // Colores por banda
+            const badgeColors = {
+                "related": "background: rgba(16, 185, 129, 0.15); color: #34d399;",
+                "adjacent": "background: rgba(59, 130, 246, 0.15); color: #60a5fa;",
+                "exploratory": "background: rgba(139, 92, 246, 0.15); color: #a78bfa;"
+            };
+            const badgeStyle = badgeColors[context.band] || "";
+
+            const card = document.createElement("article");
+            card.className = "video-card";
+            card.id = `candidate-card-${video.id}`;
+            card.innerHTML = `
+                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;">
+                    <img class="video-thumbnail" src="${escapeHtml(video.thumbnailUrl || '/static/img/placeholder.jpg')}" alt="">
+                    <span class="video-duration">${durationMin} min</span>
+                </div>
+                <div class="video-card-body" style="padding: 15px; display: flex; flex-direction: column; gap: 10px;">
+                    <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; align-self: flex-start; ${badgeStyle}">
+                        ${escapeHtml(context.label)}
+                    </span>
+                    <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: #fff; height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                        ${escapeHtml(video.title)}
+                    </h4>
+                    <p style="margin: 0; font-size: 0.85rem; color: #94a3b8;">${escapeHtml(video.channel.title)}</p>
+                    
+                    <div style="font-size: 0.8rem; background: rgba(255,255,255,0.02); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                        <div style="color: #a78bfa; font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
+                        <ul style="margin: 0; padding-left: 15px; color: #cbd5e1;">
+                            ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
+                        </ul>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
+                        <button class="btn-primary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">👍 Me interesa</button>
+                        <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}" data-cid="${video.channel.id}">👎 No me interesa</button>
+                        <button class="btn-secondary btn-sm btn-hide" style="grid-column: 1 / 3;" data-vid="${video.id}">👁️ Ocultar video</button>
+                        <button class="btn-secondary btn-sm btn-block-channel" style="grid-column: 1 / 3; color: #ef4444; border-color: rgba(239,68,68,0.2);" data-cid="${video.channel.id}" data-cname="${escapeHtml(video.channel.title)}">🚫 Bloquear canal</button>
+                    </div>
+                </div>
+            `;
+            
+            // Click to open video player / link
+            card.querySelector(".video-thumbnail-container").addEventListener("click", () => {
+                openVideoPlayer(video.id, video.youtubeVideoId, video.title);
+            });
+
+            // Action Listeners
+            card.querySelector(".btn-accept").addEventListener("click", async () => {
+                await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
+                showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
+                card.remove();
+            });
+
+            card.querySelector(".btn-less").addEventListener("click", async () => {
+                await sendFeedback(video.id, "less_like_this", video.channel.id, catId);
+                showNotification("Afinidad reducida para esta categoría.");
+                card.remove();
+            });
+
+            card.querySelector(".btn-hide").addEventListener("click", async () => {
+                await sendFeedback(video.id, "hide_video", null, catId);
+                showNotification("Video ocultado de este lote.");
+                card.remove();
+            });
+
+            card.querySelector(".btn-block-channel").addEventListener("click", async () => {
+                const confirmed = await showConfirmDialog("Bloquear Canal", `¿Estás seguro de que deseas bloquear globalmente a '${video.channel.title}'? No se volverán a recomendar sus videos.`);
+                if (confirmed) {
+                    await sendFeedback(video.id, "block_channel", video.channel.id, catId);
+                    showNotification(`Canal ${video.channel.title} bloqueado.`);
+                    card.remove();
+                }
+            });
+
+            grid.appendChild(card);
+        });
+
+    } catch (error) {
+        console.error("Error cargando descubrimientos:", error);
+        document.getElementById("discovery-candidates-grid").innerHTML = `<div class="loading-placeholder-nav">Error al cargar: ${error.message}</div>`;
+    }
+}
+
+async function sendFeedback(videoId, action, channelId = null, categoryId = null) {
+    let catId = categoryId;
+    if (!catId) {
+        const urlParams = new URLSearchParams(window.location.search);
+        catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
+    }
+    
+    await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
+        method: "POST",
+        body: {
+            categoryId: catId,
+            action: action,
+            channelId: channelId
+        }
+    });
 }
 
 /* --- Vista de Feed de Categorías (Fase 5) --- */
@@ -404,7 +706,7 @@ async function renderCategoryFeedView(categoryId) {
     const urlParams = new URLSearchParams(window.location.search);
     const initialView = urlParams.get("view") || "feed";
     const initialWatched = urlParams.get("watched") || "false"; // Por defecto no vistos para priorizar pendientes
-    const initialOrigin = urlParams.get("origin") || "all";
+    const initialOrigin = urlParams.get("origin") || "followed";
     const initialQuery = urlParams.get("query") || "";
 
     viewContainer.innerHTML = `
@@ -1114,50 +1416,122 @@ async function loadChannelsList(reset = true, cursor = "") {
 }
 
 function triggerSubscriptionSync() {
-    // Crear y añadir el overlay de carga de sincronización dinámicamente si no existe
     let syncOverlay = document.getElementById("sync-loading-overlay");
     if (!syncOverlay) {
         syncOverlay = document.createElement("div");
         syncOverlay.id = "sync-loading-overlay";
         syncOverlay.className = "sync-overlay";
-        syncOverlay.innerHTML = `
-            <div class="sync-card">
-                <div class="spinner"></div>
-                <h3 class="sync-title">Sincronizando con YouTube</h3>
-                <p class="sync-subtitle">Esto puede demorar unos segundos. Importando suscripciones, canales y videos recientes...</p>
-            </div>
-        `;
         document.body.appendChild(syncOverlay);
     }
     
+    syncOverlay.innerHTML = `
+        <div class="sync-card" style="max-width: 500px; padding: 25px; background: #1e293b; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: center;">
+            <div class="spinner" style="margin: 0 auto 15px auto;"></div>
+            <h3 class="sync-title" id="sync-overlay-title" style="margin-top: 0; color: #fff;">Iniciando actualización...</h3>
+            <p class="sync-subtitle" id="sync-overlay-subtitle" style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 15px;">Creando tarea de sincronización en segundo plano.</p>
+            <div id="sync-overlay-progress-container" style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; width: 100%; overflow: hidden; display: none; margin-bottom: 15px;">
+                <div id="sync-overlay-progress-bar" style="background: #a78bfa; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+            </div>
+            <div id="sync-overlay-details" style="font-size: 0.85rem; color: #cbd5e1; text-align: left; width: 100%; display: flex; flex-direction: column; gap: 6px;"></div>
+        </div>
+    `;
     syncOverlay.classList.remove("hidden");
 
-    apiFetch("/api/v1/channels/sync", { method: "POST" })
-        .then(response => {
-            if (response.ok) {
-                return response.json();
+    apiFetch("/api/v1/refresh-runs", {
+        method: "POST",
+        body: { stages: ["subscriptions", "followed_videos", "discovery"] }
+    })
+    .then(async response => {
+        if (response.status === 499 || response.status === 409) {
+            throw new Error("Ya existe una actualización activa en curso.");
+        }
+        if (!response.ok) {
+            throw new Error("No se pudo iniciar la actualización.");
+        }
+        return response.json();
+    })
+    .then(run => {
+        const runId = run.id;
+        document.getElementById("sync-overlay-title").innerText = "Actualizando contenido";
+        document.getElementById("sync-overlay-progress-container").style.display = "block";
+        
+        // Start polling
+        const intervalId = setInterval(async () => {
+            try {
+                const checkResp = await apiFetch(`/api/v1/refresh-runs/${runId}`);
+                if (!checkResp.ok) return;
+                const statusRun = await checkResp.json();
+                
+                const status = statusRun.status;
+                const stage = statusRun.currentStage || "Preparando...";
+                const counters = statusRun.counters || {};
+
+                const errors = {};
+                (statusRun.errors || []).forEach(e => {
+                    errors[e.stage] = e.message;
+                });
+                
+                const stagesList = statusRun.stages || [];
+                let completedCount = 0;
+                stagesList.forEach(s => {
+                    if (counters[s] || errors[s]) completedCount++;
+                });
+                const progressPct = stagesList.length ? Math.round((completedCount / stagesList.length) * 100) : 0;
+                
+                document.getElementById("sync-overlay-progress-bar").style.width = `${progressPct}%`;
+                document.getElementById("sync-overlay-subtitle").innerText = `Etapa: ${stage} (${progressPct}%)`;
+                
+                let detailsHtml = "";
+                if (counters.subscriptions) {
+                    detailsHtml += `<div>✓ Suscripciones: Creadas ${counters.subscriptions.created}, Actualizadas ${counters.subscriptions.updated}</div>`;
+                }
+                if (counters.followed_videos) {
+                    detailsHtml += `<div>✓ Videos: Creados ${counters.followed_videos.created}, Procesados ${counters.followed_videos.processed_channels} canales</div>`;
+                }
+                if (counters.discovery) {
+                    detailsHtml += `<div>✓ Descubrimiento: ${counters.discovery.searches_executed} búsquedas ejecutadas</div>`;
+                }
+                
+                for (const [stg, err] of Object.entries(errors)) {
+                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${stg}: ${err.split('\n')[0]}</div>`;
+                }
+                
+                document.getElementById("sync-overlay-details").innerHTML = detailsHtml;
+
+                if (status === "succeeded" || status === "partial" || status === "failed") {
+                    clearInterval(intervalId);
+                    syncOverlay.classList.add("hidden");
+                    
+                    let msg = "";
+                    if (status === "succeeded") {
+                        msg = "¡Sincronización finalizada con éxito!";
+                    } else if (status === "partial") {
+                        msg = "Sincronización finalizada parcialmente con algunos errores.";
+                    } else {
+                        msg = "Sincronización fallida por completo. Revise los logs.";
+                    }
+                    
+                    showAlertDialog(
+                        status === "succeeded" ? "Actualización Exitosa" : "Actualización Finalizada",
+                        `${msg}\n\nDetalles:\n- Suscripciones creadas: ${counters.subscriptions?.created || 0}\n- Videos importados: ${counters.followed_videos?.created || 0}\n- Búsquedas de descubrimiento: ${counters.discovery?.searches_executed || 0}`
+                    );
+                    handleCurrentRoute();
+                }
+            } catch (err) {
+                console.error("Error polling refresh run:", err);
             }
-            throw new Error("Fallo en sincronización externa.");
-        })
-        .then(result => {
-            syncOverlay.classList.add("hidden");
-            showAlertDialog(
-                "Sincronización Completa",
-                `Sincronización completa:\n- Suscripciones creadas: ${result.created}\n- Suscripciones actualizadas: ${result.updated}\n- Videos nuevos importados: ${result.videos_created}\n- Videos actualizados: ${result.videos_updated}\n- Canales procesados: ${result.processed_channels}`
-            );
-            
-            // Recargar la vista actual para reflejar los nuevos videos/canales
-            handleCurrentRoute();
-        })
-        .catch(error => {
-            console.error("Error en sincronización:", error);
-            syncOverlay.classList.add("hidden");
-            showAlertDialog(
-                "Error de Sincronización",
-                "Error al sincronizar con YouTube. Verifique que sus credenciales OAuth estén bien configuradas."
-            );
-        });
+        }, 1500);
+    })
+    .catch(error => {
+        console.error("Error al iniciar actualización:", error);
+        syncOverlay.classList.add("hidden");
+        showAlertDialog(
+            "Error de Actualización",
+            error.message || "No se pudo iniciar la actualización en segundo plano."
+        );
+    });
 }
+
 
 /* --- Clasificador Manual de Canales (Fase 4) --- */
 
@@ -1368,6 +1742,7 @@ function showCategoryForm(category = null) {
     const form = document.getElementById("category-form");
     const modalTitle = document.querySelector(".categories-modal-card .modal-title");
     const formError = document.getElementById("category-form-error");
+    const topicsSection = document.getElementById("category-topics-section");
 
     listView.classList.add("hidden");
     form.classList.remove("hidden");
@@ -1380,10 +1755,40 @@ function showCategoryForm(category = null) {
         document.getElementById("category-name-input").value = category.name;
         document.getElementById("category-desc-input").value = category.description || "";
         activeFormKeywords = [...(category.keywords || [])];
+        
+        // Mostrar sección de temas adyacentes
+        topicsSection.classList.remove("hidden");
+        loadAndRenderCategoryTopics(category.id);
+        
+        // Configurar listener para añadir tema manual
+        const btnAddTopic = document.getElementById("btn-add-topic");
+        // Clonar botón para eliminar listeners viejos
+        const newBtnAddTopic = btnAddTopic.cloneNode(true);
+        btnAddTopic.parentNode.replaceChild(newBtnAddTopic, btnAddTopic);
+        
+        newBtnAddTopic.addEventListener("click", async () => {
+            const input = document.getElementById("topic-term-input");
+            const term = input.value.trim();
+            if (!term) return;
+            
+            const r = await apiFetch(`/api/v1/categories/${category.id}/exploration-topics`, {
+                method: "POST",
+                body: { term: term }
+            });
+            if (r.status === 201) {
+                input.value = "";
+                showNotification("Tema manual creado y aprobado.");
+                loadAndRenderCategoryTopics(category.id);
+            } else if (r.status === 409) {
+                showNotification("El tema ya existe.");
+            }
+        });
     } else {
         modalTitle.textContent = "Nueva Categoría";
         document.getElementById("form-category-id").value = "";
         activeFormKeywords = [];
+        // Ocultar sección de temas adyacentes
+        topicsSection.classList.add("hidden");
     }
 
     renderKeywordTags();
@@ -1393,11 +1798,128 @@ function hideCategoryForm() {
     const listView = document.getElementById("categories-list-view");
     const form = document.getElementById("category-form");
     const modalTitle = document.querySelector(".categories-modal-card .modal-title");
+    const topicsSection = document.getElementById("category-topics-section");
 
     listView.classList.remove("hidden");
     form.classList.add("hidden");
+    topicsSection.classList.add("hidden");
     modalTitle.textContent = "Gestionar Categorías";
     form.reset();
+}
+
+async function loadAndRenderCategoryTopics(categoryId) {
+    const container = document.getElementById("topics-lists-container");
+    if (!container) return;
+
+    try {
+        const resp = await apiFetch(`/api/v1/categories/${categoryId}/exploration-topics`);
+        if (!resp.ok) throw new Error("Fallo al obtener temas.");
+        const data = await resp.json();
+        
+        const approved = data.items.filter(t => t.status === "approved");
+        const pending = data.items.filter(t => t.status === "pending");
+        const rejected = data.items.filter(t => t.status === "rejected");
+        
+        let html = "";
+        
+        // Approved topics
+        html += `<div style="border: 1px solid rgba(16,185,129,0.15); background: rgba(16,185,129,0.02); padding: 10px; border-radius: 8px;">`;
+        html += `<h5 style="margin: 0 0 8px 0; color: #34d399; font-size: 0.85rem;">Temas Aprobados (${approved.length})</h5>`;
+        if (approved.length === 0) {
+            html += `<span style="font-size: 0.8rem; color: #94a3b8;">No hay temas aprobados.</span>`;
+        } else {
+            html += `<div style="display: flex; flex-wrap: wrap; gap: 8px;">`;
+            approved.forEach(t => {
+                html += `
+                    <span style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 4px 8px; border-radius: 4px;">
+                        <span>${escapeHtml(t.term)}</span>
+                        <button type="button" class="btn-reject-topic" data-tid="${t.id}" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 0; font-size: 0.8rem;">✕</button>
+                    </span>
+                `;
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+        
+        // Pending topics
+        html += `<div style="border: 1px solid rgba(245,158,11,0.15); background: rgba(245,158,11,0.02); padding: 10px; border-radius: 8px;">`;
+        html += `<h5 style="margin: 0 0 8px 0; color: #fbbf24; font-size: 0.85rem;">Propuestas Pendientes (${pending.length})</h5>`;
+        if (pending.length === 0) {
+            html += `<span style="font-size: 0.8rem; color: #94a3b8;">No hay propuestas pendientes.</span>`;
+        } else {
+            html += `<div style="display: flex; flex-direction: column; gap: 8px;">`;
+            pending.forEach(t => {
+                html += `
+                    <div style="font-size: 0.8rem; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 6px 10px; border-radius: 4px;">
+                        <div>
+                            <strong style="color: #fff;">${escapeHtml(t.term)}</strong>
+                            <div style="color: #94a3b8; font-size: 0.75rem; margin-top: 2px;">${escapeHtml(t.rationale || '')}</div>
+                        </div>
+                        <div style="display: flex; gap: 6px;">
+                            <button type="button" class="btn-approve-topic btn-primary btn-sm" data-tid="${t.id}" style="padding: 2px 8px;">Aprobar</button>
+                            <button type="button" class="btn-reject-topic btn-secondary btn-sm" data-tid="${t.id}" style="padding: 2px 8px; color: #ef4444; border-color: rgba(239,68,68,0.2);">Rechazar</button>
+                        </div>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+
+        // Rejected topics
+        html += `<div style="border: 1px solid rgba(255,255,255,0.05); background: rgba(255,255,255,0.01); padding: 10px; border-radius: 8px;">`;
+        html += `<h5 style="margin: 0 0 8px 0; color: #94a3b8; font-size: 0.85rem;">Rechazados (${rejected.length})</h5>`;
+        if (rejected.length === 0) {
+            html += `<span style="font-size: 0.8rem; color: #94a3b8;">No hay temas rechazados.</span>`;
+        } else {
+            html += `<div style="display: flex; flex-wrap: wrap; gap: 8px;">`;
+            rejected.forEach(t => {
+                html += `
+                    <span style="font-size: 0.8rem; display: flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); padding: 4px 8px; border-radius: 4px; border: 1px dashed rgba(255,255,255,0.05);">
+                        <span style="text-decoration: line-through; color: #64748b;">${escapeHtml(t.term)}</span>
+                        <button type="button" class="btn-approve-topic" data-tid="${t.id}" style="background: none; border: none; color: #34d399; cursor: pointer; padding: 0; font-size: 0.8rem;">↻</button>
+                    </span>
+                `;
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+        
+        container.innerHTML = html;
+        
+        // Add action listeners
+        container.querySelectorAll(".btn-approve-topic").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const tid = btn.dataset.tid;
+                const r = await apiFetch(`/api/v1/categories/${categoryId}/exploration-topics/${tid}`, {
+                    method: "PATCH",
+                    body: { status: "approved" }
+                });
+                if (r.ok) {
+                    showNotification("Tema aprobado.");
+                    loadAndRenderCategoryTopics(categoryId);
+                }
+            });
+        });
+
+        container.querySelectorAll(".btn-reject-topic").forEach(btn => {
+            btn.addEventListener("click", async () => {
+                const tid = btn.dataset.tid;
+                const r = await apiFetch(`/api/v1/categories/${categoryId}/exploration-topics/${tid}`, {
+                    method: "PATCH",
+                    body: { status: "rejected" }
+                });
+                if (r.ok) {
+                    showNotification("Tema rechazado.");
+                    loadAndRenderCategoryTopics(categoryId);
+                }
+            });
+        });
+
+    } catch (e) {
+        console.error(e);
+        container.innerHTML = `<span style="color: #ef4444; font-size: 0.8rem;">Error al cargar temas: ${e.message}</span>`;
+    }
 }
 
 function renderKeywordTags() {

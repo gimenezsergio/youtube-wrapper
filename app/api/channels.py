@@ -127,11 +127,17 @@ def set_channel_blocked(channel_id):
 
     db = get_db()
     # Verificar si el canal existe
-    cursor = db.execute("SELECT id FROM channels WHERE id = ?", (channel_id,))
-    if not cursor.fetchone():
-        return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
-
     db.execute("UPDATE channels SET is_blocked = ? WHERE id = ?", (int(blocked), channel_id))
+
+    if blocked:
+        # Retirar todos sus candidatos activos de descubrimiento si se bloquea
+        db.execute("""
+            UPDATE discovery_candidates
+            SET status = 'expired'
+            WHERE video_id IN (SELECT id FROM videos WHERE channel_id = ?)
+              AND status = 'active'
+        """, (channel_id,))
+
     db.commit()
 
     # Retornar el canal actualizado
@@ -275,3 +281,4 @@ def sync_channels():
                 "message": f"Fallo al sincronizar suscripciones y videos: {e}"
             }
         }), 500
+
