@@ -17,7 +17,7 @@ class SpyYouTubeGateway(FakeYouTubeGateway):
         self.channel_details_called = False
 
     def search_videos(
-        self, access_token, q, published_after=None, limit=25, region_code=None, relevance_language=None
+        self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
     ):
         self.search_called = True
         return super().search_videos(
@@ -106,7 +106,7 @@ def test_corr_score_03_min_threshold_via_service(app):
             conn.close()
 
     fake_gateway = SpyYouTubeGateway()
-    fake_gateway.search_results = [
+    fake_gateway.search_responses["default"] = [
         {
             "youtube_video_id": "vid_photo_1",
             "title": "Fotografía básica",
@@ -117,22 +117,22 @@ def test_corr_score_03_min_threshold_via_service(app):
             "youtube_channel_id": "UC_FOTO_1"
         }
     ]
-    fake_gateway.videos_details = [
+    fake_gateway.video_details = [
         {
             "youtube_video_id": "vid_photo_1",
             "duration_seconds": 600,
             "content_type": "video"
         }
     ]
-    fake_gateway.channels_details = [
-        {
+    fake_gateway.channels_details = {
+        "UC_FOTO_1": {
             "youtube_channel_id": "UC_FOTO_1",
             "title": "Canal Foto 1",
             "description": "Canal de fotos",
             "thumbnail_url": "thumb_1",
             "uploads_playlist_id": "playlist_1"
         }
-    ]
+    }
 
     # Setup spy on score_and_classify_candidate
     discovery_service_module = sys.modules["app.services.discovery_service"]
@@ -154,22 +154,27 @@ def test_corr_score_03_min_threshold_via_service(app):
     finally:
         discovery_service_module.score_and_classify_candidate = orig_score_fn
 
-    # 1. Verify Gateway spies
-    assert fake_gateway.search_called, "YouTube search was not executed"
-    assert fake_gateway.video_details_called, "YouTube video details was not executed"
-    assert fake_gateway.channel_details_called, "YouTube channel details was not executed"
+    # 1. Verify Gateway spies executed
+    assert fake_gateway.search_called, "search_videos was not executed"
+    assert fake_gateway.video_details_called, "get_videos_details was not executed"
+    assert fake_gateway.channel_details_called, "get_channels_details was not executed"
 
     # 2. Verify score function spy and config propagation
     assert len(called_args) > 0, "score_and_classify_candidate was not called"
-    # Find keyword argument min_score_related in calls
-    matched_min_score = False
-    for _, kwargs in called_args:
+    matched_call = None
+    for args, kwargs in called_args:
         if kwargs.get("min_score_related") == 99.0:
-            matched_min_score = True
+            matched_call = (args, kwargs)
             break
-    assert matched_min_score, "Threshold of 99.0 was not propagated to scoring function"
+    assert matched_call is not None, "Threshold of 99.0 was not propagated to scoring function"
 
-    # 3. Verify database: no candidates should be stored as active
+    # Verify that without threshold=99.0, candidate score is < 99
+    video_eval, signals_eval = matched_call[0][0], matched_call[0][1]
+    unthresholded_cand = orig_score_fn(video_eval, signals_eval, min_score_related=0.0)
+    assert unthresholded_cand is not None, "Candidate should be valid when unthresholded"
+    assert unthresholded_cand.score < 99.0, f"Candidate score {unthresholded_cand.score} should be < 99.0"
+
+    # 3. Verify database: no candidates stored as active
     with app.app_context():
         conn = get_db_connection(db_path)
         try:
@@ -180,4 +185,5 @@ def test_corr_score_03_min_threshold_via_service(app):
         finally:
             conn.close()
 
-    assert stats["categories"][1]["selected"] == 0, "No candidates should be selected with a threshold of 99.0"
+    # 4. Verify stats
+    assert stats["categories"][1]["selected"] == 0, "selected count must be 0"
