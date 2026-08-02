@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: YouTube Curator API
-  version: 0.2.0
+  version: 0.3.0
   description: API privada para la aplicación personal YouTube Curator.
 servers:
   - url: /api/v1
@@ -622,6 +622,7 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               required: [categoryId, action]
               properties:
                 categoryId:
@@ -647,6 +648,8 @@ paths:
                     type: boolean
         "404":
           $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /discoveries/{videoId}/hidden:
     delete:
       tags: [Discovery]
@@ -685,6 +688,8 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/RefreshRun"
+        "400":
+          $ref: "#/components/responses/BadRequest"
     post:
       tags: [Refresh]
       summary: Solicitar actualización manual
@@ -697,9 +702,11 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
                 stages:
                   type: array
+                  uniqueItems: true
                   items:
                     type: string
                     enum:
@@ -715,6 +722,8 @@ paths:
                 $ref: "#/components/schemas/RefreshRun"
         "409":
           $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidationError"
   /refresh-runs/{refreshRunId}:
     get:
       tags: [Refresh]
@@ -1289,26 +1298,79 @@ components:
           type: [string, "null"]
           format: date-time
         counters:
-          type: object
-          additionalProperties:
-            type: object
-            additionalProperties: true
+          $ref: "#/components/schemas/RefreshCounters"
         errors:
           type: array
           items:
-            type: object
-            required: [stage, message]
-            properties:
-              stage:
-                type: string
-              message:
-                type: string
+            $ref: "#/components/schemas/RefreshRunError"
         heartbeatAt:
           type: [string, "null"]
           format: date-time
         leaseExpiresAt:
           type: [string, "null"]
           format: date-time
+    RefreshCounters:
+      type: object
+      additionalProperties: false
+      properties:
+        subscriptions:
+          $ref: "#/components/schemas/SimpleStageCounters"
+        followedVideos:
+          $ref: "#/components/schemas/SimpleStageCounters"
+        discovery:
+          $ref: "#/components/schemas/DiscoveryRefreshCounters"
+    SimpleStageCounters:
+      type: object
+      additionalProperties:
+        type: integer
+        minimum: 0
+    DiscoveryRefreshCounters:
+      type: object
+      additionalProperties: false
+      required: [searchesExecuted, quotaExhausted, categories]
+      properties:
+        searchesExecuted:
+          type: integer
+          minimum: 0
+        quotaExhausted:
+          type: boolean
+        categories:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/DiscoveryCategoryRefreshResult"
+    DiscoveryCategoryRefreshResult:
+      type: object
+      additionalProperties: false
+      required: [selected, shortfall]
+      properties:
+        selected:
+          type: integer
+          minimum: 0
+        shortfall:
+          type: [string, "null"]
+          enum:
+            - insufficient_candidates
+            - insufficient_signals
+            - no_approved_topics
+            - budget_exhausted
+            - quota_exhausted
+            - external_error
+            - null
+    RefreshRunError:
+      type: object
+      additionalProperties: false
+      required: [stage, code, message]
+      properties:
+        stage:
+          type: string
+          enum: [subscriptions, followed_videos, discovery]
+        categoryId:
+          type: integer
+        code:
+          type: string
+        message:
+          type: string
+          maxLength: 500
     Error:
       type: object
       required: [error]
