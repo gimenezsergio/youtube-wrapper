@@ -1,50 +1,174 @@
-import re
-from typing import Dict, List, Optional, Set, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.domain.discovery.models import Band, DiscoveryCandidateDomain
+from app.domain.discovery.normalization import normalize_term
 
 
-def calculate_jaccard_similarity(title_a: str, title_b: str) -> float:
-    """
-    Calcula la similitud de Jaccard basada en raíces de palabras normalizadas
-    para ignorar plurales/singulares y palabras de parada cortas.
-    """
-    from app.domain.discovery.normalization import normalize_term
+class SelectionConfig:
+    """Configuración inmutable y validada para la selección de descubrimientos."""
 
-    def get_stems(t: str) -> Set[str]:
-        normalized = normalize_term(t)
-        words = re.findall(r'\w+', normalized)
-        stems = set()
-        for w in words:
-            if len(w) > 3:
-                stems.add(w[:5])
-        return stems
+    def __init__(
+        self,
+        total: int = 8,
+        related: int = 5,
+        adjacent: int = 2,
+        exploratory: int = 1,
+        max_per_channel: int = 2,
+        duplicate_title_threshold: float = 0.70,
+    ):
+        if total <= 0:
+            raise ValueError("total must be positive")
+        if related < 0 or adjacent < 0 or exploratory < 0:
+            raise ValueError("targets cannot be negative")
+        if related + adjacent + exploratory > total:
+            raise ValueError("sum of targets cannot exceed total")
+        if max_per_channel <= 0:
+            raise ValueError("max_per_channel must be positive")
+        if not (0.0 <= duplicate_title_threshold <= 1.0):
+            raise ValueError("duplicate_title_threshold must be between 0.0 and 1.0")
 
-    stems_a = get_stems(title_a)
-    stems_b = get_stems(title_b)
+        self.total = total
+        self.related = related
+        self.adjacent = adjacent
+        self.exploratory = exploratory
+        self.max_per_channel = max_per_channel
+        self.duplicate_title_threshold = duplicate_title_threshold
 
-    if not stems_a or not stems_b:
+
+def _stem_word(word: str) -> str:
+    if len(word) > 3 and word.endswith("es"):
+        return word[:-2]
+    if len(word) > 3 and word.endswith("s"):
+        return word[:-1]
+    return word
+
+
+STOP_WORDS = {
+    "de", "del", "la", "las", "el", "los", "en", "y", "a", "o", "con", "un", "una", "unos", "unas", "por", "para"
+}
+
+
+def calculate_jaccard_similarity(text1: str, text2: str) -> float:
+    """Calcula la similitud de Jaccard de conjuntos de tokens entre dos textos normalizados."""
+    norm1 = normalize_term(text1)
+    norm2 = normalize_term(text2)
+    tokens1 = {_stem_word(w) for w in norm1.split() if w not in STOP_WORDS}
+    tokens2 = {_stem_word(w) for w in norm2.split() if w not in STOP_WORDS}
+    if not tokens1 or not tokens2:
         return 0.0
-
-    intersection = stems_a.intersection(stems_b)
-    union = stems_a.union(stems_b)
+    intersection = tokens1.intersection(tokens2)
+    union = tokens1.union(tokens2)
     return len(intersection) / len(union)
 
-def sort_candidates_stable(candidates: List[DiscoveryCandidateDomain]) -> List[DiscoveryCandidateDomain]:
-    """
-    Ordena candidatos de forma estable:
-    1. Score descendente.
-    2. Fecha de publicación descendente (más recientes primero).
-    3. YouTube Video ID descendente como desempate final.
-    """
-    # En Python, el ordenamiento es estable. Hacemos llaves múltiples:
-    # Para ordenar desc, ordenamos por (-score, -published_at, -id)
-    # published_at es un string ISO, por lo que podemos usar comparación lexicográfica inversa
-    return sorted(
-        candidates,
-        key=lambda c: (c.score, c.published_at or "", c.youtube_video_id or ""),
-        reverse=True
+
+def _get_sort_key(c: DiscoveryCandidateDomain) -> Tuple[float, float, str]:
+    """Genera la clave de ordenamiento determinista: (-score, -published_at_ts, youtube_video_id_asc)."""
+    ts = 0.0
+    if c.published_at:
+        try:
+            pub_str = c.published_at.replace("Z", "+00:00")
+            ts = datetime.fromisoformat(pub_str).timestamp()
+        except Exception:
+            pass
+    return (-c.score, -ts, c.youtube_video_id)
+
+
+def _can_add_candidate(
+    candidate: DiscoveryCandidateDomain,
+    selected: List[DiscoveryCandidateDomain],
+    max_per_channel: int,
+    duplicate_title_threshold: float,
+) -> bool:
+    """Verifica si un candidato respeta el límite por canal y la diversidad de títulos."""
+    channel_key = candidate.youtube_channel_id or candidate.channel_id
+    channel_count = sum(
+        1 for s in selected if (s.youtube_channel_id or s.channel_id) == channel_key
     )
+    if channel_count >= max_per_channel:
+        return False
+
+    for s in selected:
+        if calculate_jaccard_similarity(candidate.title, s.title) >= duplicate_title_threshold:
+            return False
+
+    return True
+
+
+def _prepare_pools(
+    candidates: List[DiscoveryCandidateDomain],
+    min_related: float,
+    min_adjacent: float,
+    min_exploratory: float,
+) -> Tuple[List[DiscoveryCandidateDomain], List[DiscoveryCandidateDomain], List[DiscoveryCandidateDomain]]:
+    """Filtra y prepara las tres listas de candidatos por banda real ordenadas determinísticamente."""
+    unique_by_id: Dict[str, DiscoveryCandidateDomain] = {}
+    for c in candidates:
+        if c.band == Band.RELATED and c.score < min_related:
+            continue
+        if c.band == Band.ADJACENT and c.score < min_adjacent:
+            continue
+        if c.band == Band.EXPLORATORY and c.score < min_exploratory:
+            continue
+
+        vid = c.youtube_video_id
+        if vid not in unique_by_id or _get_sort_key(c) < _get_sort_key(unique_by_id[vid]):
+            unique_by_id[vid] = c
+
+    pool_rel = sorted(
+        [c for c in unique_by_id.values() if c.band == Band.RELATED], key=_get_sort_key
+    )
+    pool_adj = sorted(
+        [c for c in unique_by_id.values() if c.band == Band.ADJACENT], key=_get_sort_key
+    )
+    pool_exp = sorted(
+        [c for c in unique_by_id.values() if c.band == Band.EXPLORATORY], key=_get_sort_key
+    )
+    return pool_rel, pool_adj, pool_exp
+
+
+def _fill_quota(
+    pool: List[DiscoveryCandidateDomain],
+    target_count: int,
+    target_list: List[DiscoveryCandidateDomain],
+    all_selected: List[DiscoveryCandidateDomain],
+    config: SelectionConfig,
+) -> List[DiscoveryCandidateDomain]:
+    """Llena un cupo primario retornando los elementos no utilizados."""
+    remanentes = []
+    for c in pool:
+        if len(target_list) < target_count and len(all_selected) < config.total:
+            if _can_add_candidate(c, all_selected, config.max_per_channel, config.duplicate_title_threshold):
+                target_list.append(c)
+                all_selected.append(c)
+            else:
+                remanentes.append(c)
+        else:
+            remanentes.append(c)
+    return remanentes
+
+
+def _apply_fallback_step(
+    rem_source: List[DiscoveryCandidateDomain],
+    needed_count: int,
+    target_list: List[DiscoveryCandidateDomain],
+    all_selected: List[DiscoveryCandidateDomain],
+    config: SelectionConfig,
+) -> Tuple[List[DiscoveryCandidateDomain], int]:
+    """Aplica un paso de la matriz de fallback."""
+    still_remanente = []
+    for c in rem_source:
+        if needed_count > 0 and len(all_selected) < config.total:
+            if _can_add_candidate(c, all_selected, config.max_per_channel, config.duplicate_title_threshold):
+                target_list.append(c)
+                all_selected.append(c)
+                needed_count -= 1
+            else:
+                still_remanente.append(c)
+        else:
+            still_remanente.append(c)
+    return still_remanente, needed_count
+
 
 def select_batch_diverse(
     candidates: List[DiscoveryCandidateDomain],
@@ -53,158 +177,76 @@ def select_batch_diverse(
     target_adjacent: int = 2,
     target_exploratory: int = 1,
     max_videos_per_channel: int = 2,
-    min_score_related: float = 55.0,
-    min_score_adjacent: float = 45.0,
-    min_score_exploratory: float = 35.0
-) -> Tuple[List[DiscoveryCandidateDomain], dict, Optional[str]]:
+    duplicate_title_threshold: float = 0.70,
+    min_score_related: float = 0.0,
+    min_score_adjacent: float = 0.0,
+    min_score_exploratory: float = 0.0,
+) -> Tuple[List[DiscoveryCandidateDomain], Dict[str, Any], Optional[str]]:
     """
-    Realiza la selección determinista y diversa del lote respetando la mezcla 5/2/1.
-    Aplica límites de diversidad:
-    - Máximo videos por canal (configurable).
-    - Evita títulos duplicados (Jaccard > 0.7).
-    Aplica la matriz de fallback en caso de escasez:
-    - Faltante de related -> cubierto por adjacent. NUNCA por exploratory.
-    - Faltante de adjacent -> cubierto por related. NUNCA por exploratory.
-    - Faltante de exploratory -> cubierto por adjacent, luego related.
+    Selecciona un lote diverso y determinista de candidatos aplicando la matriz de fallback estricta.
     """
-    # 1. Separar por bandas y filtrar por puntajes mínimos configurados
-    pool_related = [c for c in candidates if c.band == Band.RELATED and c.score >= min_score_related]
-    pool_adjacent = [c for c in candidates if c.band == Band.ADJACENT and c.score >= min_score_adjacent]
-    pool_exploratory = [c for c in candidates if c.band == Band.EXPLORATORY and c.score >= min_score_exploratory]
+    rel, adj, exp = target_related, target_adjacent, target_exploratory
+    if rel + adj + exp > target_total:
+        rel = min(rel, target_total)
+        adj = min(adj, max(0, target_total - rel))
+        exp = min(exp, max(0, target_total - rel - adj))
 
-    # Ordenar cada pool de forma estable
-    pool_related = sort_candidates_stable(pool_related)
-    pool_adjacent = sort_candidates_stable(pool_adjacent)
-    pool_exploratory = sort_candidates_stable(pool_exploratory)
+    config = SelectionConfig(
+        total=target_total,
+        related=rel,
+        adjacent=adj,
+        exploratory=exp,
+        max_per_channel=max_videos_per_channel,
+        duplicate_title_threshold=duplicate_title_threshold,
+    )
 
-    selected: List[DiscoveryCandidateDomain] = []
-    channel_counts: Dict[str, int] = {}
-    selected_titles: List[str] = []
+    pool_rel, pool_adj, pool_exp = _prepare_pools(
+        candidates, min_score_related, min_score_adjacent, min_score_exploratory
+    )
 
-    def is_eligible(c: DiscoveryCandidateDomain) -> bool:
-        # Límite por canal
-        if channel_counts.get(c.youtube_channel_id, 0) >= max_videos_per_channel:
-            return False
-        # Similitud de títulos
-        for title in selected_titles:
-            if calculate_jaccard_similarity(c.title, title) > 0.7:
-                return False
-        return True
+    selected_rel: List[DiscoveryCandidateDomain] = []
+    selected_adj: List[DiscoveryCandidateDomain] = []
+    selected_exp: List[DiscoveryCandidateDomain] = []
+    all_selected: List[DiscoveryCandidateDomain] = []
 
-    def add_to_selected(c: DiscoveryCandidateDomain):
-        selected.append(c)
-        channel_counts[c.youtube_channel_id] = channel_counts.get(c.youtube_channel_id, 0) + 1
-        selected_titles.append(c.title)
+    # 1. Fase Primaria
+    rem_rel = _fill_quota(pool_rel, config.related, selected_rel, all_selected, config)
+    rem_adj = _fill_quota(pool_adj, config.adjacent, selected_adj, all_selected, config)
+    _ = _fill_quota(pool_exp, config.exploratory, selected_exp, all_selected, config)
 
-    # 2. Selección inicial por banda
-    # Related
-    related_selected = 0
-    remaining_related = []
-    for c in pool_related:
-        if related_selected < target_related and is_eligible(c):
-            add_to_selected(c)
-            related_selected += 1
-        else:
-            remaining_related.append(c)
+    # 2. Matriz de Fallback Estricta
+    # A) Faltante related -> cubierto únicamente con adjacent remanente
+    needed_rel = config.related - len(selected_rel)
+    rem_adj, _ = _apply_fallback_step(rem_adj, needed_rel, selected_rel, all_selected, config)
 
-    # Adjacent
-    adjacent_selected = 0
-    remaining_adjacent = []
-    for c in pool_adjacent:
-        if adjacent_selected < target_adjacent and is_eligible(c):
-            add_to_selected(c)
-            adjacent_selected += 1
-        else:
-            remaining_adjacent.append(c)
+    # B) Faltante adjacent -> cubierto únicamente con related remanente
+    needed_adj = config.adjacent - len(selected_adj)
+    rem_rel, _ = _apply_fallback_step(rem_rel, needed_adj, selected_adj, all_selected, config)
 
-    # Exploratory
-    exploratory_selected = 0
-    remaining_exploratory = []
-    for c in pool_exploratory:
-        if exploratory_selected < target_exploratory and is_eligible(c):
-            add_to_selected(c)
-            exploratory_selected += 1
-        else:
-            remaining_exploratory.append(c)
+    # C) Faltante exploratory -> cubierto primero con adjacent remanente, luego related remanente
+    needed_exp = config.exploratory - len(selected_exp)
+    if needed_exp > 0:
+        rem_adj, needed_exp = _apply_fallback_step(rem_adj, needed_exp, selected_exp, all_selected, config)
+    if needed_exp > 0:
+        rem_rel, needed_exp = _apply_fallback_step(rem_rel, needed_exp, selected_exp, all_selected, config)
 
-    # 3. Aplicar matriz de Fallback
-    # A) Si falta related: intentar rellenar con adjacent restantes (NUNCA con exploratory)
-    if related_selected < target_related:
-        needed = target_related - related_selected
-        fallback_added = 0
-        still_remaining_adjacent = []
-        for c in remaining_adjacent:
-            if fallback_added < needed and is_eligible(c):
-                add_to_selected(c)
-                fallback_added += 1
-            else:
-                still_remaining_adjacent.append(c)
-        remaining_adjacent = still_remaining_adjacent
-        related_selected += fallback_added
+    # 3. Asignar Ranks Consecutivos
+    for idx, c in enumerate(all_selected, start=1):
+        c.selection_rank = idx
 
-    # B) Si falta adjacent: intentar rellenar con related restantes (NUNCA con exploratory)
-    if adjacent_selected < target_adjacent:
-        needed = target_adjacent - adjacent_selected
-        fallback_added = 0
-        still_remaining_related = []
-        for c in remaining_related:
-            if fallback_added < needed and is_eligible(c):
-                add_to_selected(c)
-                fallback_added += 1
-            else:
-                still_remaining_related.append(c)
-        remaining_related = still_remaining_related
-        adjacent_selected += fallback_added
-
-    # C) Si falta exploratory: intentar rellenar con adjacent restantes, luego con related restantes
-    if exploratory_selected < target_exploratory:
-        needed = target_exploratory - exploratory_selected
-        fallback_added = 0
-
-        # Primero de adjacent restante
-        still_remaining_adjacent = []
-        for c in remaining_adjacent:
-            if fallback_added < needed and is_eligible(c):
-                add_to_selected(c)
-                fallback_added += 1
-            else:
-                still_remaining_adjacent.append(c)
-        remaining_adjacent = still_remaining_adjacent
-        exploratory_selected += fallback_added
-
-        # Luego de related restante
-        if fallback_added < needed:
-            still_remaining_related = []
-            for c in remaining_related:
-                if fallback_added < needed and is_eligible(c):
-                    add_to_selected(c)
-                    fallback_added += 1
-                else:
-                    still_remaining_related.append(c)
-            remaining_related = still_remaining_related
-            exploratory_selected += fallback_added
-
-    # Asignar selection_rank (1-based index)
-    for index, c in enumerate(selected):
-        c.selection_rank = index + 1
-
-    # Construir resumen de contadores por banda
-    counts_dict = {
+    # 4. Contar selectedByBand por la BANDA REAL del candidato
+    counts = {
         "targetByBand": {
-            "related": target_related,
-            "adjacent": target_adjacent,
-            "exploratory": target_exploratory
+            "related": config.related,
+            "adjacent": config.adjacent,
+            "exploratory": config.exploratory,
         },
         "selectedByBand": {
-            "related": len([c for c in selected if c.band == Band.RELATED]),
-            "adjacent": len([c for c in selected if c.band == Band.ADJACENT]),
-            "exploratory": len([c for c in selected if c.band == Band.EXPLORATORY])
-        }
+            "related": sum(1 for c in all_selected if c.band == Band.RELATED),
+            "adjacent": sum(1 for c in all_selected if c.band == Band.ADJACENT),
+            "exploratory": sum(1 for c in all_selected if c.band == Band.EXPLORATORY),
+        },
     }
 
-    # Determinar shortfall_reason si no se completó el lote
-    shortfall_reason = None
-    if len(selected) < target_total:
-        shortfall_reason = "insufficient_candidates"
-
-    return selected, counts_dict, shortfall_reason
+    shortfall = "insufficient_candidates" if len(all_selected) < config.total else None
+    return all_selected, counts, shortfall
