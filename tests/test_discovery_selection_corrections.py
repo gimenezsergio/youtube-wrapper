@@ -1,9 +1,9 @@
-import pytest
 from app.domain.discovery.models import Band, DiscoveryCandidateDomain
 from app.domain.discovery.selection import select_batch_diverse
 
+
 def test_corr_sel_02_only_exploratory():
-    """CORR-SEL-02 — Con 8 exploratory elegibles, se selecciona máximo el cupo exploratorio (1) y no deriva a related/adjacent."""
+    """CORR-SEL-02 — Con 8 exploratory elegibles, se selecciona máximo el cupo exploratorio (1)."""
     candidates = []
     for i in range(8):
         c = DiscoveryCandidateDomain(

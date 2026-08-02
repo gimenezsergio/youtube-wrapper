@@ -1,6 +1,7 @@
-import json
 import pytest
+
 from app.db import get_db_connection
+
 
 @pytest.fixture
 def auth_client(client):
@@ -12,12 +13,13 @@ def auth_client(client):
     client.environ_base["HTTP_X_CSRF_TOKEN"] = "mock-csrf-token"
     return client
 
+
 def test_corr_api_01_query_validation(auth_client):
     """CORR-API-01 — Query inválida devuelve 400."""
     # Cursor malformado
     r1 = auth_client.get("/api/v1/discoveries?cursor=abc")
     assert r1.status_code == 400
-    
+
     # Banda desconocida
     r2 = auth_client.get("/api/v1/discoveries?band=nonsense")
     assert r2.status_code == 400
@@ -36,10 +38,20 @@ def test_corr_api_02_feedback_validation(auth_client, app):
     with app.app_context():
         db = get_db_connection(app.config["DATABASE_PATH"])
         # Insertar categoria
-        db.execute("INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) VALUES (1, 'Cat A', 'cat-a', 1, 'now', 'now')")
+        db.execute(
+            "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+            "VALUES (1, 'Cat A', 'cat-a', 1, 'now', 'now')"
+        )
         # Canal y video
-        db.execute("INSERT INTO channels (id, youtube_channel_id, title, created_at, updated_at) VALUES (10, 'UC_OLD', 'Canal Viejo', 'now', 'now')")
-        db.execute("INSERT INTO videos (id, youtube_video_id, channel_id, title, published_at, duration_seconds, created_at, updated_at) VALUES (20, 'vid_old', 10, 'Video Viejo', '2026-07-20T10:00:00Z', 500, 'now', 'now')")
+        db.execute(
+            "INSERT INTO channels (id, youtube_channel_id, title, created_at, updated_at) "
+            "VALUES (10, 'UC_OLD', 'Canal Viejo', 'now', 'now')"
+        )
+        db.execute(
+            "INSERT INTO videos (id, youtube_video_id, channel_id, title, published_at, "
+            "duration_seconds, created_at, updated_at) "
+            "VALUES (20, 'vid_old', 10, 'Video Viejo', '2026-07-20T10:00:00Z', 500, 'now', 'now')"
+        )
         db.commit()
         db.close()
 
@@ -77,7 +89,10 @@ def test_corr_api_03_non_existent_resources(auth_client, app):
     with app.app_context():
         db = get_db_connection(app.config["DATABASE_PATH"])
         # Insertar categoria
-        db.execute("INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) VALUES (1, 'Cat A', 'cat-a', 1, 'now', 'now')")
+        db.execute(
+            "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+            "VALUES (1, 'Cat A', 'cat-a', 1, 'now', 'now')"
+        )
         db.commit()
         db.close()
 
@@ -92,8 +107,15 @@ def test_corr_api_03_non_existent_resources(auth_client, app):
     # (Video 20 existe, pero categoría 999 no existe)
     with app.app_context():
         db = get_db_connection(app.config["DATABASE_PATH"])
-        db.execute("INSERT INTO channels (id, youtube_channel_id, title, created_at, updated_at) VALUES (10, 'UC_OLD', 'Canal Viejo', 'now', 'now')")
-        db.execute("INSERT INTO videos (id, youtube_video_id, channel_id, title, published_at, duration_seconds, created_at, updated_at) VALUES (20, 'vid_old', 10, 'Video Viejo', '2026-07-20T10:00:00Z', 500, 'now', 'now')")
+        db.execute(
+            "INSERT INTO channels (id, youtube_channel_id, title, created_at, updated_at) "
+            "VALUES (10, 'UC_OLD', 'Canal Viejo', 'now', 'now')"
+        )
+        db.execute(
+            "INSERT INTO videos (id, youtube_video_id, channel_id, title, published_at, "
+            "duration_seconds, created_at, updated_at) "
+            "VALUES (20, 'vid_old', 10, 'Video Viejo', '2026-07-20T10:00:00Z', 500, 'now', 'now')"
+        )
         db.commit()
         db.close()
 

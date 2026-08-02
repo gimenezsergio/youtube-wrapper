@@ -1,16 +1,40 @@
-import pytest
+import sys
 from datetime import datetime, timezone
-from app.domain.discovery.models import Band
-from app.domain.discovery.signals import CategorySignals
+
+from app.auth.encryption import encrypt_token
+from app.db import get_db_connection
 from app.domain.discovery.scoring import score_and_classify_candidate
+from app.domain.discovery.signals import CategorySignals
 from app.services.discovery_service import DiscoveryService
 from tests.fakes.youtube_gateway import FakeYouTubeGateway
-from app.db import get_db_connection
-from app.auth.encryption import encrypt_token
+
+
+class SpyYouTubeGateway(FakeYouTubeGateway):
+    def __init__(self):
+        super().__init__()
+        self.search_called = False
+        self.video_details_called = False
+        self.channel_details_called = False
+
+    def search_videos(
+        self, access_token, q, published_after=None, limit=25, region_code=None, relevance_language=None
+    ):
+        self.search_called = True
+        return super().search_videos(
+            access_token, q, published_after, limit, region_code, relevance_language
+        )
+
+    def get_videos_details(self, access_token, video_ids):
+        self.video_details_called = True
+        return super().get_videos_details(access_token, video_ids)
+
+    def get_channels_details(self, access_token, channel_ids):
+        self.channel_details_called = True
+        return super().get_channels_details(access_token, channel_ids)
+
 
 def test_corr_score_03_min_threshold_validation():
     """CORR-SCORE-03 — Mínimo configurable excluye candidatos con puntuación inferior."""
-    # 1. Direct domain function test
     signals = CategorySignals(
         category_id=1,
         positive_keywords=[("fotografia", 1.0)],
@@ -59,15 +83,29 @@ def test_corr_score_03_min_threshold_via_service(app):
     with app.app_context():
         conn = get_db_connection(db_path)
         try:
-            conn.execute("INSERT INTO credentials (id, access_token, refresh_token, expires_at, updated_at) VALUES (1, ?, ?, '2030-01-01T00:00:00Z', 'now')", (encrypt_token("access"), encrypt_token("refresh")))
-            conn.execute("INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) VALUES (1, 'Fotografia', 'fotografia', 1, 'now', 'now')")
-            conn.execute("INSERT INTO category_keywords (category_id, term, polarity, weight) VALUES (1, 'fotografia', 'positive', 1.0)")
-            conn.execute("INSERT INTO refresh_runs (id, status, requested_stages_json, current_stage, requested_at, counters_json, errors_json) VALUES (1, 'running', '[\"discovery\"]', 'discovery', 'now', '{}', '[]')")
+            conn.execute(
+                "INSERT INTO credentials (id, access_token, refresh_token, expires_at, updated_at) "
+                "VALUES (1, ?, ?, '2030-01-01T00:00:00Z', 'now')",
+                (encrypt_token("access"), encrypt_token("refresh"))
+            )
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (1, 'Fotografia', 'fotografia', 1, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (1, 'fotografia', 'positive', 1.0)"
+            )
+            conn.execute(
+                "INSERT INTO refresh_runs (id, status, requested_stages_json, current_stage, "
+                "requested_at, counters_json, errors_json) "
+                "VALUES (1, 'running', '[\"discovery\"]', 'discovery', 'now', '{}', '[]')"
+            )
             conn.commit()
         finally:
             conn.close()
 
-    fake_gateway = FakeYouTubeGateway()
+    fake_gateway = SpyYouTubeGateway()
     fake_gateway.search_results = [
         {
             "youtube_video_id": "vid_photo_1",
@@ -96,12 +134,50 @@ def test_corr_score_03_min_threshold_via_service(app):
         }
     ]
 
+    # Setup spy on score_and_classify_candidate
+    discovery_service_module = sys.modules["app.services.discovery_service"]
+    orig_score_fn = discovery_service_module.score_and_classify_candidate
+    called_args = []
+
+    def spy_score_fn(*args, **kwargs):
+        called_args.append((args, kwargs))
+        return orig_score_fn(*args, **kwargs)
+
+    discovery_service_module.score_and_classify_candidate = spy_score_fn
+
+    try:
+        with app.app_context():
+            conn = get_db_connection(db_path)
+            service = DiscoveryService(gateway=fake_gateway)
+            stats = service.run_discovery(conn, run_id=1)
+            conn.close()
+    finally:
+        discovery_service_module.score_and_classify_candidate = orig_score_fn
+
+    # 1. Verify Gateway spies
+    assert fake_gateway.search_called, "YouTube search was not executed"
+    assert fake_gateway.video_details_called, "YouTube video details was not executed"
+    assert fake_gateway.channel_details_called, "YouTube channel details was not executed"
+
+    # 2. Verify score function spy and config propagation
+    assert len(called_args) > 0, "score_and_classify_candidate was not called"
+    # Find keyword argument min_score_related in calls
+    matched_min_score = False
+    for _, kwargs in called_args:
+        if kwargs.get("min_score_related") == 99.0:
+            matched_min_score = True
+            break
+    assert matched_min_score, "Threshold of 99.0 was not propagated to scoring function"
+
+    # 3. Verify database: no candidates should be stored as active
     with app.app_context():
         conn = get_db_connection(db_path)
-        service = DiscoveryService(gateway=fake_gateway)
-        stats = service.run_discovery(conn, run_id=1)
-        conn.close()
+        try:
+            saved_candidates = conn.execute(
+                "SELECT count(*) FROM discovery_candidates WHERE status = 'active'"
+            ).fetchone()[0]
+            assert saved_candidates == 0, "Active candidates were persisted despite falling below threshold"
+        finally:
+            conn.close()
 
-    # The candidate has a standard score of 55.0, so under 99.0 threshold it should NOT be selected
-    # This verifies the thresholds configured in Flask are actually used by the service and domain.
     assert stats["categories"][1]["selected"] == 0, "No candidates should be selected with a threshold of 99.0"
