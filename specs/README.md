@@ -10,6 +10,7 @@ Aplicación web personal para organizar y descubrir contenido de YouTube sin dep
 - `tasks.md`: plan vigente y ordenado para implementar descubrimiento y recomendaciones.
 - `tests.md`: estrategia, casos de prueba y trazabilidad.
 - `openapi.yaml`: contrato HTTP de la API Flask.
+- `recommendation-corrections/`: especificación incremental para estabilizar el motor integrado en `99023ae`, con regresiones ejecutables y ejecución en baby steps.
 
 ## Alcance de esta especificación
 
@@ -44,6 +45,7 @@ No incluye una extensión de navegador, reproducción embebida ni sincronizació
 5. Leer `current-state.md` y confirmar que la brecha sigue vigente respecto del código.
 6. Ejecutar `tasks.md` en orden, sin saltar dependencias ni puertas de verificación.
 7. Si el código cambió después del commit relevado, actualizar primero `current-state.md` y ajustar únicamente las tareas afectadas.
+8. Para corregir el incremento de recomendaciones ya integrado, leer además `recommendation-corrections/README.md` y ejecutar sus fases una por vez.
 
 ## Precedencia documental
 
@@ -55,3 +57,5 @@ En caso de contradicción, prevalecen en este orden:
 4. `tests.md` para ejemplos verificables.
 5. `current-state.md` para el punto de partida observado.
 6. `tasks.md` para el orden de ejecución; nunca puede contradecir los cuatro documentos normativos anteriores.
+
+Para el alcance correctivo declarado en `recommendation-corrections/README.md`, ese paquete tiene precedencia acotada sobre las secciones generales que precisa. No modifica requisitos ajenos a recomendaciones.
