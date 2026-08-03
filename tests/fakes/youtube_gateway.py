@@ -1,3 +1,6 @@
+from app.domain.discovery.models import HydrationResult
+
+
 class FakeYouTubeGateway:
     def __init__(self):
         # Para suscripciones
@@ -83,8 +86,20 @@ class FakeYouTubeGateway:
         ]
 
         # Para búsquedas (descubrimiento)
-        self.search_calls = [] # Registrar parámetros de llamadas a búsqueda
-        self.search_responses = {} # Mapeo de consulta (q) a resultados de búsqueda
+        self.search_calls = []  # Registrar parámetros de llamadas a búsqueda
+        self.search_responses = {}  # Mapeo de consulta (q) a resultados de búsqueda
+
+        # Flags configurables para pruebas de errores e hidratación
+        self.search_error = None
+        self.video_hydration_error = None
+        self.channel_hydration_error = None
+        self.video_details_incomplete = False
+        self.channel_details_incomplete = False
+        self.strict_hydration = False
+
+        # Contadores de llamadas para instrumentación
+        self.video_hydration_calls = 0
+        self.channel_hydration_calls = 0
 
     def refresh_access_token(self, refresh_token):
         self.refresh_calls += 1
@@ -100,11 +115,17 @@ class FakeYouTubeGateway:
         return [self.channels_details[cid] for cid in channel_ids if cid in self.channels_details]
 
     def get_channels_details(self, access_token, channel_ids):
+        self.channel_hydration_calls += 1
+        if self.channel_hydration_error:
+            raise self.channel_hydration_error
         res = []
         for cid in channel_ids:
             if cid in self.channels_details:
                 res.append(self.channels_details[cid])
-            else:
+            elif (
+                not getattr(self, "channel_details_incomplete", False)
+                and not getattr(self, "strict_hydration", False)
+            ):
                 res.append({
                     "youtube_channel_id": cid,
                     "title": f"Canal {cid}",
@@ -112,6 +133,8 @@ class FakeYouTubeGateway:
                     "thumbnail_url": "thumb.jpg",
                     "uploads_playlist_id": f"UU_{cid}"
                 })
+        if getattr(self, "channel_details_incomplete", False) and len(res) < len(channel_ids):
+            return HydrationResult(items=res, complete=False)
         return res
 
     def fetch_playlist_items(self, access_token, playlist_id, limit=50, page_token=None):
@@ -121,20 +144,29 @@ class FakeYouTubeGateway:
         return [d for d in self.video_details if d["youtube_video_id"] in video_ids]
 
     def get_videos_details(self, access_token, video_ids):
+        self.video_hydration_calls += 1
+        if self.video_hydration_error:
+            raise self.video_hydration_error
         res = []
         for vid in video_ids:
             found = next((d for d in self.video_details if d["youtube_video_id"] == vid), None)
             if found:
                 res.append(found)
-            else:
+            elif not getattr(self, "video_details_incomplete", False) and not getattr(self, "strict_hydration", False):
                 res.append({
                     "youtube_video_id": vid,
                     "duration_seconds": 600,
                     "content_type": "video"
                 })
+        if getattr(self, "video_details_incomplete", False) and len(res) < len(video_ids):
+            return HydrationResult(items=res, complete=False)
         return res
 
-    def search_videos(self, access_token, q, published_after=None, limit=25, region_code='AR', relevance_language='es'):
+    def search_videos(
+        self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
+    ):
+        if self.search_error:
+            raise self.search_error
         self.search_calls.append({
             "q": q,
             "published_after": published_after,

@@ -14,6 +14,7 @@ def test_normalization():
     assert normalize_term("  MÚSICA   electrónica  ") == "musica electronica"
     assert normalize_term("áéíóú üÜ ñÑ") == "aeiou uu nn"
 
+
 def test_disc_01_query_builder():
     """DISC-01 — Construye una consulta directa y una expandida."""
     signals = CategorySignals(
@@ -46,6 +47,7 @@ def test_disc_01_query_builder():
     assert "fotografia" in queries[1]["q"]
     assert "direccion de arte" in queries[1]["q"]
 
+
 def test_disc_02_query_builder_no_keywords():
     """DISC-02 — Usa señales de canales o registra que no existen señales suficientes."""
     signals = CategorySignals(
@@ -67,6 +69,7 @@ def test_disc_02_query_builder_no_keywords():
     assert len(queries) == 1
     assert queries[0]["band"] == Band.RELATED
     assert "canal foto" in queries[0]["q"]
+
 
 def test_disc_05_scoring_block():
     """DISC-05 — Canales bloqueados reciben exclusión absoluta (retorna None)."""
@@ -91,10 +94,12 @@ def test_disc_05_scoring_block():
         "description": "Desc",
         "channel_id": 99,
         "channel_title": "Canal Malo",
-        "published_at": "2026-07-30T10:00:00Z"
+        "published_at": "2026-07-30T10:00:00Z",
+        "duration_seconds": 600
     }
     candidate = score_and_classify_candidate(video, signals)
     assert candidate is None
+
 
 def test_disc_06_scoring_components():
     """DISC-06 — Casos de tabla validan cada componente y límites 0..100."""
@@ -120,15 +125,17 @@ def test_disc_06_scoring_components():
         "youtube_video_id": "v1",
         "title": "Fotografia iluminacion profesional",
         "description": "Tutorial basico de fotografia",
-        "channel_id": 15, # Distinto de 5 para que no sea excluido por ser canal seguido semilla
+        "channel_id": 15,  # Distinto de 5 para que no sea excluido por ser canal seguido semilla
         "channel_title": "Canal Semilla",
-        "published_at": "2026-07-30T10:00:00Z" # Hace 2 días
+        "published_at": "2026-07-30T10:00:00Z",  # Hace 2 días
+        "duration_seconds": 600
     }
     candidate = score_and_classify_candidate(video, signals, now=now)
     assert candidate is not None
     assert candidate.band == Band.ADJACENT
     assert candidate.score > 50.0
     assert len(candidate.reasons) >= 1
+
 
 def test_disc_07_reasons():
     """DISC-07 — Todo candidato visible tiene al menos una razón."""
@@ -151,11 +158,16 @@ def test_disc_07_reasons():
         "youtube_video_id": "v1",
         "title": "Test video",
         "channel_id": 1,
-        "channel_title": "Canal A"
+        "channel_title": "Canal A",
+        "description": "Descripción completa",
+        "thumbnail_url": "thumb",
+        "published_at": "2026-07-30T10:00:00Z",
+        "duration_seconds": 600
     }
     candidate = score_and_classify_candidate(video, signals)
     assert candidate is not None
     assert len(candidate.reasons) >= 1
+
 
 def test_disc_09_10_24_scheduling():
     """DISC-09, DISC-10, DISC-24 — Presupuesto y planificación round-robin."""
@@ -171,6 +183,7 @@ def test_disc_09_10_24_scheduling():
     assert scheduled[1] == (2, {"q": "q2_1"})
     assert scheduled[2] == (3, {"q": "q3_1"})
     assert scheduled[3] == (1, {"q": "q1_2"})
+
 
 def test_disc_18_classification():
     """DISC-18 — Clasificación de bandas."""
@@ -190,23 +203,31 @@ def test_disc_18_classification():
         hidden_video_ids=set()
     )
 
+    meta = {
+        "description": "Descripción completa",
+        "thumbnail_url": "thumb",
+        "published_at": "2026-07-30T10:00:00Z",
+        "duration_seconds": 600
+    }
+
     # 1. Related
-    c_rel = score_and_classify_candidate({"title": "Clase de fotografia", "channel_title": "Otro"}, signals)
+    c_rel = score_and_classify_candidate({"title": "Clase de fotografia", "channel_title": "Otro", **meta}, signals)
     assert c_rel.band == Band.RELATED
 
     # 2. Adjacent
-    c_adj = score_and_classify_candidate({"title": "fotografia con iluminacion", "channel_title": "Otro"}, signals)
+    c_adj = score_and_classify_candidate({"title": "fotografia con iluminacion", "channel_title": "Otro", **meta}, signals)
     assert c_adj.band == Band.ADJACENT
 
     # 3. Exploratory (solo matches topic)
-    c_exp = score_and_classify_candidate({"title": "iluminacion de interiores", "channel_title": "Otro"}, signals)
+    c_exp = score_and_classify_candidate({"title": "iluminacion de interiores", "channel_title": "Otro", **meta}, signals)
     assert c_exp.band == Band.EXPLORATORY
+
 
 def test_disc_19_20_21_22_23_selection():
     """Valida la selección de lotes, fallbacks, diversidad de canal y duplicados."""
     c1 = DiscoveryCandidateDomain(1, "v1", 10, "ch_1", "ch_1", "Fotografia de retratos", "", "2026-07-30T10:00:00Z", 600, "video", 90.0, Band.RELATED)
     c2 = DiscoveryCandidateDomain(2, "v2", 10, "ch_1", "ch_1", "Fotografia de paisajes", "", "2026-07-30T09:00:00Z", 600, "video", 85.0, Band.RELATED)
-    c3 = DiscoveryCandidateDomain(3, "v3", 10, "ch_1", "ch_1", "Fotografia de deportes", "", "2026-07-30T08:00:00Z", 600, "video", 80.0, Band.RELATED) # Tercero del mismo canal
+    c3 = DiscoveryCandidateDomain(3, "v3", 10, "ch_1", "ch_1", "Fotografia de deportes", "", "2026-07-30T08:00:00Z", 600, "video", 80.0, Band.RELATED)  # Tercero del mismo canal
     c4 = DiscoveryCandidateDomain(4, "v4", 11, "ch_2", "ch_2", "Fotografia callejera", "", "2026-07-30T07:00:00Z", 600, "video", 75.0, Band.RELATED)
     c5 = DiscoveryCandidateDomain(5, "v5", 12, "ch_3", "ch_3", "Retrato de calle", "", "2026-07-30T06:00:00Z", 600, "video", 70.0, Band.RELATED)
 
@@ -236,6 +257,7 @@ def test_disc_19_20_21_22_23_selection():
     # 3. Contar bandas
     # Con pool incompleto o fallbacks activos
     assert len(selected) > 0
+
 
 def test_jaccard_similarity():
     """Valida el cálculo de similitud de Jaccard."""

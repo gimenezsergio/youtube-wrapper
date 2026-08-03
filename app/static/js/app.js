@@ -610,8 +610,9 @@ async function renderDiscoveriesView() {
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
-                        <button class="btn-primary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">👍 Me interesa</button>
-                        <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}" data-cid="${video.channel.id}">👎 No me interesa</button>
+                        <button class="btn-primary btn-sm btn-more" style="grid-column: 1 / 3;" data-vid="${video.id}">👍 Me interesa</button>
+                        <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}">👎 No me interesa</button>
+                        <button class="btn-secondary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">➕ Seguir canal</button>
                         <button class="btn-secondary btn-sm btn-hide" style="grid-column: 1 / 3;" data-vid="${video.id}">👁️ Ocultar video</button>
                         <button class="btn-secondary btn-sm btn-block-channel" style="grid-column: 1 / 3; color: #ef4444; border-color: rgba(239,68,68,0.2);" data-cid="${video.channel.id}" data-cname="${escapeHtml(video.channel.title)}">🚫 Bloquear canal</button>
                     </div>
@@ -624,30 +625,56 @@ async function renderDiscoveriesView() {
             });
 
             // Action Listeners
-            card.querySelector(".btn-accept").addEventListener("click", async () => {
-                await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
-                showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
-                card.remove();
+            card.querySelector(".btn-more").addEventListener("click", async () => {
+                try {
+                    await sendFeedback(video.id, "more_like_this", null, catId);
+                    showNotification("Interés registrado. Se buscarán más videos similares.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo enviar el feedback: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-less").addEventListener("click", async () => {
-                await sendFeedback(video.id, "less_like_this", video.channel.id, catId);
-                showNotification("Afinidad reducida para esta categoría.");
-                card.remove();
+                try {
+                    await sendFeedback(video.id, "less_like_this", null, catId);
+                    showNotification("Afinidad reducida para esta categoría.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo enviar el feedback: ${escapeHtml(err.message)}`);
+                }
+            });
+
+            card.querySelector(".btn-accept").addEventListener("click", async () => {
+                try {
+                    await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
+                    showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo seguir el canal: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-hide").addEventListener("click", async () => {
-                await sendFeedback(video.id, "hide_video", null, catId);
-                showNotification("Video ocultado de este lote.");
-                card.remove();
+                try {
+                    await sendFeedback(video.id, "hide_video", null, catId);
+                    showNotification("Video ocultado de este lote.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo ocultar el video: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-block-channel").addEventListener("click", async () => {
                 const confirmed = await showConfirmDialog("Bloquear Canal", `¿Estás seguro de que deseas bloquear globalmente a '${video.channel.title}'? No se volverán a recomendar sus videos.`);
                 if (confirmed) {
-                    await sendFeedback(video.id, "block_channel", video.channel.id, catId);
-                    showNotification(`Canal ${video.channel.title} bloqueado.`);
-                    card.remove();
+                    try {
+                        await sendFeedback(video.id, "block_channel", video.channel.id, catId);
+                        showNotification(`Canal ${video.channel.title} bloqueado.`);
+                        card.remove();
+                    } catch (err) {
+                        showAlertDialog("Error", `No se pudo bloquear el canal: ${escapeHtml(err.message)}`);
+                    }
                 }
             });
 
@@ -656,7 +683,7 @@ async function renderDiscoveriesView() {
 
     } catch (error) {
         console.error("Error cargando descubrimientos:", error);
-        document.getElementById("discovery-candidates-grid").innerHTML = `<div class="loading-placeholder-nav">Error al cargar: ${error.message}</div>`;
+        document.getElementById("discovery-candidates-grid").innerHTML = `<div class="loading-placeholder-nav">Error al cargar: ${escapeHtml(error.message)}</div>`;
     }
 }
 
@@ -667,7 +694,7 @@ async function sendFeedback(videoId, action, channelId = null, categoryId = null
         catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
     }
     
-    await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
+    const response = await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
         method: "POST",
         body: {
             categoryId: catId,
@@ -675,6 +702,19 @@ async function sendFeedback(videoId, action, channelId = null, categoryId = null
             channelId: channelId
         }
     });
+
+    if (!response.ok) {
+        let errMsg = `Error ${response.status}`;
+        try {
+            const data = await response.json();
+            if (data.error && data.error.message) {
+                errMsg = data.error.message;
+            }
+        } catch (e) {
+            // ignore
+        }
+        throw new Error(errMsg);
+    }
 }
 
 /* --- Vista de Feed de Categorías (Fase 5) --- */
@@ -1483,17 +1523,17 @@ function triggerSubscriptionSync() {
                 
                 let detailsHtml = "";
                 if (counters.subscriptions) {
-                    detailsHtml += `<div>✓ Suscripciones: Creadas ${counters.subscriptions.created}, Actualizadas ${counters.subscriptions.updated}</div>`;
+                    detailsHtml += `<div>✓ Suscripciones: Creadas ${escapeHtml(String(counters.subscriptions.created))}, Actualizadas ${escapeHtml(String(counters.subscriptions.updated))}</div>`;
                 }
                 if (counters.followed_videos) {
-                    detailsHtml += `<div>✓ Videos: Creados ${counters.followed_videos.created}, Procesados ${counters.followed_videos.processed_channels} canales</div>`;
+                    detailsHtml += `<div>✓ Videos: Creados ${escapeHtml(String(counters.followed_videos.created))}, Procesados ${escapeHtml(String(counters.followed_videos.processed_channels))} canales</div>`;
                 }
                 if (counters.discovery) {
-                    detailsHtml += `<div>✓ Descubrimiento: ${counters.discovery.searches_executed} búsquedas ejecutadas</div>`;
+                    detailsHtml += `<div>✓ Descubrimiento: ${escapeHtml(String(counters.discovery.searches_executed))} búsquedas ejecutadas</div>`;
                 }
                 
                 for (const [stg, err] of Object.entries(errors)) {
-                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${stg}: ${err.split('\n')[0]}</div>`;
+                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${escapeHtml(stg)}: ${escapeHtml(err.split('\n')[0])}</div>`;
                 }
                 
                 document.getElementById("sync-overlay-details").innerHTML = detailsHtml;

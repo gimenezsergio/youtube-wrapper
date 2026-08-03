@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, List, Tuple
 
 from app.domain.discovery.models import Band
@@ -6,35 +7,29 @@ from app.domain.discovery.signals import CategorySignals
 
 def clean_term_for_search(term: str) -> str:
     """Remueve caracteres problemáticos de búsqueda de YouTube, manteniendo letras y números."""
-    import re
     return re.sub(r'[^a-zA-Z0-9ñÑáéíóúÁÉÍÓÚüÜ ]', '', term).strip()
 
-def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -> List[Dict[str, Any]]:
-    """
-    Genera hasta `max_queries` consultas para una categoría.
-    - Consulta 1 (related): Palabras clave positivas + exclusión de negativas.
-    - Consulta 2 (adjacent/exploratory): Ancla de palabras clave + temas de exploración aprobados.
-    """
+
+def _build_negative_part(signals: CategorySignals) -> str:
+    """Construye las exclusiones negativas (ej: "-noterm1 -noterm2")."""
+    if not signals.negative_keywords:
+        return ""
+    neg_terms = []
+    for nk in signals.negative_keywords:
+        cleaned = clean_term_for_search(nk)
+        if cleaned:
+            neg_terms.append(f"-{cleaned}")
+    return (" " + " ".join(neg_terms)) if neg_terms else ""
+
+
+def _build_related_query(signals: CategorySignals, negative_part: str) -> List[Dict[str, Any]]:
+    """Construye la consulta 'related' principal basada en palabras clave o semillas."""
     queries = []
-    negative_part = ""
-
-    # Construir exclusiones negativas (ej: "-noterm1 -noterm2")
-    if signals.negative_keywords:
-        neg_terms = []
-        for nk in signals.negative_keywords:
-            cleaned = clean_term_for_search(nk)
-            if cleaned:
-                neg_terms.append(f"-{cleaned}")
-        negative_part = " " + " ".join(neg_terms)
-
-    # 1. Consulta 'related' (Búsqueda principal)
-    # Combinar palabras clave positivas ordenadas por peso desc
     pos_keywords = sorted(signals.positive_keywords, key=lambda x: x[1], reverse=True)
     if pos_keywords:
         terms_to_include = []
-        # Agregamos las palabras clave principales que quepan en 100 caracteres (dejando espacio para las negativas)
         current_len = len(negative_part)
-        for term, weight in pos_keywords:
+        for term, _weight in pos_keywords:
             cleaned = clean_term_for_search(term)
             if not cleaned:
                 continue
@@ -53,10 +48,8 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
                 "explanation": f"Basado en palabras clave de la categoría: {', '.join(terms_to_include[:3])}"
             })
 
-    # Si aún no tenemos consulta, intentar con títulos de canales semilla o videos vistos
     if not queries and (signals.seed_channel_titles or signals.positive_video_titles):
         seeds = signals.seed_channel_titles + signals.positive_video_titles
-        # Tomar el más importante
         for seed in seeds:
             cleaned = clean_term_for_search(seed)
             if cleaned:
@@ -69,14 +62,19 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
                 })
                 break
 
-    # 2. Consulta 'adjacent' (Si hay temas de exploración aprobados y tenemos espacio para más consultas)
-    if len(queries) < max_queries and signals.approved_exploration_topics and pos_keywords:
-        # Tomar la palabra clave con más peso como ancla
-        anchor = clean_term_for_search(pos_keywords[0][0])
+    return queries
 
-        # Tomar temas aprobados
+
+def _build_adjacent_queries(
+    signals: CategorySignals, negative_part: str, max_queries: int, current_queries_count: int
+) -> List[Dict[str, Any]]:
+    """Construye consultas 'adjacent' basadas en cruces temáticos."""
+    queries = []
+    pos_keywords = sorted(signals.positive_keywords, key=lambda x: x[1], reverse=True)
+    if current_queries_count < max_queries and signals.approved_exploration_topics and pos_keywords:
+        anchor = clean_term_for_search(pos_keywords[0][0])
         topics = sorted(signals.approved_exploration_topics, key=lambda x: x[1], reverse=True)
-        for topic_term, topic_weight in topics:
+        for topic_term, _topic_weight in topics:
             cleaned_topic = clean_term_for_search(topic_term)
             if anchor and cleaned_topic:
                 q_str = f"{anchor} {cleaned_topic}" + negative_part
@@ -86,25 +84,28 @@ def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -
                     "source": f"adjacent_topic:{topic_term}",
                     "explanation": f"Cruce temático de '{anchor}' con '{topic_term}'"
                 })
-                if len(queries) >= max_queries:
+                if current_queries_count + len(queries) >= max_queries:
                     break
-
     return queries
+
+
+def build_queries_for_category(signals: CategorySignals, max_queries: int = 2) -> List[Dict[str, Any]]:
+    """Genera hasta `max_queries` consultas para una categoría."""
+    negative_part = _build_negative_part(signals)
+    queries = _build_related_query(signals, negative_part)
+    adjacent = _build_adjacent_queries(signals, negative_part, max_queries, len(queries))
+    queries.extend(adjacent)
+    return queries
+
 
 def schedule_queries_round_robin(
     category_queries: Dict[int, List[Dict[str, Any]]],
     global_budget: int = 10,
     max_per_category: int = 2
 ) -> List[Tuple[int, Dict[str, Any]]]:
-    """
-    Planifica consultas en round-robin.
-    Retorna una lista de tuplas (category_id, query_dict).
-    """
+    """Planifica consultas en round-robin."""
     scheduled = []
-    # Copia de las consultas por categoría
     queries_pool = {cat_id: list(q_list[:max_per_category]) for cat_id, q_list in category_queries.items()}
-
-    # Lista de categorías ordenadas para round-robin
     cat_ids = sorted(list(queries_pool.keys()))
 
     any_added = True
