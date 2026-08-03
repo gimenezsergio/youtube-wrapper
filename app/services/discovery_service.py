@@ -317,6 +317,10 @@ class DiscoveryService:
         )
         selected_tuples = [t for t in candidates_data if t[0] in selected]
 
+        target_total = config["batch_size"]
+        selected_total = len(selected)
+        shortfall_reason = None if selected_total == target_total else (shortfall or "insufficient_candidates")
+
         return CategoryAttemptResult(
             category_id=cat_id,
             outcome="publishable",
@@ -328,7 +332,7 @@ class DiscoveryService:
                     "exploratory": config["mix_exploratory"],
                 },
                 "selectedByBand": counts["selectedByBand"],
-                "shortfall_reason": shortfall if shortfall else "insufficient_candidates",
+                "shortfall_reason": shortfall_reason,
             },
             selected_items_data=selected_tuples,
         )
@@ -342,8 +346,19 @@ class DiscoveryService:
             shortfall_code = attempt.error.code.lower() if attempt.error else "external_error"
             return {"selected": 0, "shortfall": shortfall_code, "failed": True}, err_dict
 
-        shortfall = attempt.summary.get("shortfall_reason") if attempt.summary else "insufficient_candidates"
-        if not shortfall or shortfall == "no_results":
+        if attempt.summary:
+            target_by_band = attempt.summary.get("targetByBand", {})
+            selected_by_band = attempt.summary.get("selectedByBand", {})
+            target_total = sum(target_by_band.values()) if target_by_band else 0
+            selected_total = sum(selected_by_band.values()) if selected_by_band else len(attempt.candidates)
+
+            shortfall = attempt.summary.get("shortfall_reason")
+            if shortfall != "insufficient_signals":
+                if selected_total == target_total and target_total > 0:
+                    shortfall = None
+                elif selected_total < target_total and not shortfall:
+                    shortfall = "insufficient_candidates"
+        else:
             shortfall = "insufficient_candidates"
 
         from app.db import get_db_connection
@@ -394,9 +409,19 @@ class DiscoveryService:
     ) -> Tuple[Dict[int, CategoryAttemptResult], bool]:
         """Evalúa e hidrata los intentos de cada categoría."""
         attempt_results: Dict[int, CategoryAttemptResult] = {}
-        quota_exhausted = False
+        hydration_quota_exhausted = False
 
         for cat_id in category_ids:
+            if hydration_quota_exhausted:
+                err = PublicStageError(
+                    stage="discovery",
+                    code="YOUTUBE_QUOTA_EXHAUSTED",
+                    message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
+                    category_id=cat_id,
+                )
+                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=err)
+                continue
+
             signals = category_signals[cat_id]
             if not signals.positive_keywords and not signals.seed_channel_ids:
                 attempt_results[cat_id] = CategoryAttemptResult(
@@ -441,7 +466,9 @@ class DiscoveryService:
 
             v_map, c_map, hyd_err, is_quota = self._hydrate_category(access_token, cat_id, unique_items)
             if is_quota:
-                quota_exhausted = True
+                hydration_quota_exhausted = True
+                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=hyd_err)
+                continue
 
             if hyd_err:
                 attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=hyd_err)
@@ -451,7 +478,7 @@ class DiscoveryService:
                 db, cat_id, signals, unique_items, v_map, c_map, now, config
             )
 
-        return attempt_results, quota_exhausted
+        return attempt_results, hydration_quota_exhausted
 
     def run_discovery(self, db, run_id: int, heartbeat_callback=None) -> dict:
         """Ejecuta la canalización de descubrimiento en 5 pasos."""

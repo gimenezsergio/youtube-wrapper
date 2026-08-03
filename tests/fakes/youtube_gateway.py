@@ -97,6 +97,10 @@ class FakeYouTubeGateway:
         self.channel_details_incomplete = False
         self.strict_hydration = False
 
+        # Contadores de llamadas para instrumentación
+        self.video_hydration_calls = 0
+        self.channel_hydration_calls = 0
+
     def refresh_access_token(self, refresh_token):
         self.refresh_calls += 1
         return {"access_token": "new-access-token", "expires_in": 3600}
@@ -111,6 +115,7 @@ class FakeYouTubeGateway:
         return [self.channels_details[cid] for cid in channel_ids if cid in self.channels_details]
 
     def get_channels_details(self, access_token, channel_ids):
+        self.channel_hydration_calls += 1
         if self.channel_hydration_error:
             raise self.channel_hydration_error
         res = []
@@ -139,6 +144,7 @@ class FakeYouTubeGateway:
         return [d for d in self.video_details if d["youtube_video_id"] in video_ids]
 
     def get_videos_details(self, access_token, video_ids):
+        self.video_hydration_calls += 1
         if self.video_hydration_error:
             raise self.video_hydration_error
         res = []

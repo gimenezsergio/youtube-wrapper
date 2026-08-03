@@ -701,23 +701,46 @@ def test_corr_pub_07_isolated_categories(app):
         finally:
             conn.close()
 
+    search_items_cat1 = []
+    for i in range(1, 6):
+        cid = f"UC_{chr(64 + ((i - 1) // 2 + 1))}"
+        search_items_cat1.append({
+            "youtube_video_id": f"vid_cat1_{i}",
+            "title": f"Fotografía de retrato {i}",
+            "description": "Curso completo",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    for i in (6, 7):
+        cid = "UC_C" if i == 6 else "UC_D"
+        search_items_cat1.append({
+            "youtube_video_id": f"vid_cat1_{i}",
+            "title": f"Fotografía e iluminación {i}",
+            "description": "Iluminación",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    search_items_cat1.append({
+        "youtube_video_id": "vid_cat1_8",
+        "title": "Fotografía de estudio 8",
+        "description": "Estudio",
+        "published_at": "2026-07-30T18:00:00Z",
+        "thumbnail_url": "thumb_8",
+        "channel_title": "Canal UC_D",
+        "youtube_channel_id": "UC_D",
+    })
+
     class IsolatedGateway(FakeYouTubeGateway):
         def search_videos(
             self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
         ):
             if "cine" in q:
                 raise YouTubeQuotaError("Quota exhausted for cine category")
-            return [
-                {
-                    "youtube_video_id": "vid_cat1_1",
-                    "title": "Fotografía profesional",
-                    "description": "Curso completo",
-                    "published_at": "2026-07-30T10:00:00Z",
-                    "thumbnail_url": "thumb_1",
-                    "channel_title": "Canal Foto 1",
-                    "youtube_channel_id": "UC_FOTO_1",
-                }
-            ]
+            return search_items_cat1
 
     gateway = IsolatedGateway()
     with app.app_context():
@@ -737,9 +760,12 @@ def test_corr_pub_07_isolated_categories(app):
         assert run_row["status"] == "partial", "Refresh run status must be partial"
 
         cat1_batch = conn.execute(
-            "SELECT selected_total FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 1"
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 1"
         ).fetchone()
         assert cat1_batch is not None
+        assert cat1_batch["selected_total"] == 8
+        assert cat1_batch["shortfall_reason"] is None
 
         cat2_batch_run2 = conn.execute(
             "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 2"
@@ -954,3 +980,312 @@ def test_corr_pub_logs_sanitization(app, caplog):
     assert "token=" not in log_text, "token parameter must not leak into logs"
     assert "private.internal" not in log_text, "private host must not leak into logs"
     assert "https://" not in log_text, "URL must not leak into logs"
+
+
+def test_corr_pub_full_batch_has_no_shortfall(app):
+    """Corrección 1 — Lote completo de 8 candidatos debe tener shortfall_reason = None (NULL en BD)."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=True)
+        finally:
+            conn.close()
+
+    fake_gateway = FakeYouTubeGateway()
+    search_items = []
+    for i in range(1, 6):
+        cid = f"UC_{chr(64 + ((i - 1) // 2 + 1))}"
+        search_items.append({
+            "youtube_video_id": f"vid_f_{i}",
+            "title": f"Fotografía de retrato {i}",
+            "description": "Curso completo",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    for i in (6, 7):
+        cid = "UC_C" if i == 6 else "UC_D"
+        search_items.append({
+            "youtube_video_id": f"vid_f_{i}",
+            "title": f"Fotografía e iluminación {i}",
+            "description": "Iluminación profesional",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    search_items.append({
+        "youtube_video_id": "vid_f_8",
+        "title": "Iluminación de estudio 8",
+        "description": "Estudio fotográfico",
+        "published_at": "2026-07-30T18:00:00Z",
+        "thumbnail_url": "thumb_8",
+        "channel_title": "Canal UC_D",
+        "youtube_channel_id": "UC_D",
+    })
+    fake_gateway.search_responses["default"] = search_items
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        batch_row = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()
+        assert batch_row["selected_total"] == 8
+        assert batch_row["shortfall_reason"] is None, "Shortfall must be NULL when selected == target"
+
+        cat_stats = stats["categories"][1]
+        assert cat_stats["selected"] == 8
+        assert cat_stats["shortfall"] is None
+        assert cat_stats["failed"] is False
+    finally:
+        conn.close()
+
+
+def test_corr_pub_hydration_quota_in_video_details_stops_subsequent_calls(app):
+    """Corrección 2 — Cuota durante get_videos_details detiene hidratación de categorías posteriores."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class QuotaInVideoHydrationGateway(FakeYouTubeGateway):
+        def get_videos_details(self, access_token, video_ids):
+            self.video_hydration_calls += 1
+            raise YouTubeQuotaError("Quota exhausted during video hydration")
+
+    gateway = QuotaInVideoHydrationGateway()
+    gateway.search_responses["default"] = [
+        {
+            "youtube_video_id": "vid_q_1",
+            "title": "Fotografía de retrato",
+            "description": "Curso completo",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_1",
+            "channel_title": "Canal A",
+            "youtube_channel_id": "UC_A",
+        }
+    ]
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        assert gateway.video_hydration_calls == 1
+        assert gateway.channel_hydration_calls == 0
+
+        batches = conn.execute("SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2").fetchone()[0]
+        assert batches == 0, "No batch must be created for run 2"
+
+        cand_old = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert cand_old["status"] == "active", "Old candidate must remain active"
+
+        assert stats["quota_exhausted"] is True
+        assert stats["categories"][1]["failed"] is True
+        assert stats["categories"][2]["failed"] is True
+        assert any(e.get("categoryId") == 1 and e.get("code") == "YOUTUBE_QUOTA_EXHAUSTED" for e in stats["errors"])
+        assert any(e.get("categoryId") == 2 and e.get("code") == "YOUTUBE_QUOTA_EXHAUSTED" for e in stats["errors"])
+    finally:
+        conn.close()
+
+
+def test_corr_pub_hydration_quota_in_channel_details_stops_subsequent_calls(app):
+    """Corrección 2 — Cuota durante get_channels_details detiene hidratación de categorías posteriores."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class QuotaInChannelHydrationGateway(FakeYouTubeGateway):
+        def get_channels_details(self, access_token, channel_ids):
+            self.channel_hydration_calls += 1
+            raise YouTubeQuotaError("Quota exhausted during channel hydration")
+
+    gateway = QuotaInChannelHydrationGateway()
+    gateway.search_responses["default"] = [
+        {
+            "youtube_video_id": "vid_qc_1",
+            "title": "Fotografía de retrato",
+            "description": "Curso completo",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_1",
+            "channel_title": "Canal A",
+            "youtube_channel_id": "UC_A",
+        }
+    ]
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        assert gateway.video_hydration_calls == 1
+        assert gateway.channel_hydration_calls == 1
+
+        batches = conn.execute("SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2").fetchone()[0]
+        assert batches == 0
+
+        cand_old = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert cand_old["status"] == "active"
+
+        assert stats["quota_exhausted"] is True
+        assert stats["categories"][1]["failed"] is True
+        assert stats["categories"][2]["failed"] is True
+    finally:
+        conn.close()
+
+
+def test_corr_pub_hydration_quota_isolated_successful_category(app):
+    """Corrección 2 — Categoría A completa hidratación y publica; Categoría B falla por cuota durante hidratación."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=True)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class QuotaOnCatBVideoHydrationGateway(FakeYouTubeGateway):
+        def get_videos_details(self, access_token, video_ids):
+            self.video_hydration_calls += 1
+            if "vid_cat2_1" in video_ids:
+                raise YouTubeQuotaError("Quota exhausted on Category B video hydration")
+            return super().get_videos_details(access_token, video_ids)
+
+    gateway = QuotaOnCatBVideoHydrationGateway()
+    search_items_cat1 = []
+    for i in range(1, 6):
+        cid = f"UC_{chr(64 + ((i - 1) // 2 + 1))}"
+        search_items_cat1.append({
+            "youtube_video_id": f"vid_cat1_{i}",
+            "title": f"Fotografía de retrato {i}",
+            "description": "Curso completo",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    for i in (6, 7):
+        cid = "UC_C" if i == 6 else "UC_D"
+        search_items_cat1.append({
+            "youtube_video_id": f"vid_cat1_{i}",
+            "title": f"Fotografía e iluminación {i}",
+            "description": "Iluminación",
+            "published_at": f"2026-07-30T{10+i}:00:00Z",
+            "thumbnail_url": f"thumb_{i}",
+            "channel_title": f"Canal {cid}",
+            "youtube_channel_id": cid,
+        })
+    search_items_cat1.append({
+        "youtube_video_id": "vid_cat1_8",
+        "title": "Iluminación de estudio 8",
+        "description": "Estudio",
+        "published_at": "2026-07-30T18:00:00Z",
+        "thumbnail_url": "thumb_8",
+        "channel_title": "Canal UC_D",
+        "youtube_channel_id": "UC_D",
+    })
+
+    search_items_cat2 = [
+        {
+            "youtube_video_id": "vid_cat2_1",
+            "title": "Cine documental",
+            "description": "Documental",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_c2",
+            "channel_title": "Canal Cine",
+            "youtube_channel_id": "UC_CINE",
+        }
+    ]
+
+    gateway.search_responses["fotografia"] = search_items_cat1
+    gateway.search_responses["fotografia retrato"] = search_items_cat1
+    gateway.search_responses["fotografia iluminacion"] = search_items_cat1
+    gateway.search_responses["cine"] = search_items_cat2
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            orchestrator = RefreshOrchestrator(gateway=gateway)
+            orchestrator.run_refresh(conn, run_id=2, worker_id="w-1")
+            conn.commit()
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        run_row = conn.execute("SELECT status FROM refresh_runs WHERE id = 2").fetchone()
+        assert run_row["status"] == "partial"
+
+        cat1_batch = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()
+        assert cat1_batch is not None
+        assert cat1_batch["selected_total"] == 8
+        assert cat1_batch["shortfall_reason"] is None
+
+        cat2_batch = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 2"
+        ).fetchone()[0]
+        assert cat2_batch == 0
+    finally:
+        conn.close()
