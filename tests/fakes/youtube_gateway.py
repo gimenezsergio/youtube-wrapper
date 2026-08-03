@@ -1,3 +1,6 @@
+from app.domain.discovery.models import HydrationResult
+
+
 class FakeYouTubeGateway:
     def __init__(self):
         # Para suscripciones
@@ -92,6 +95,7 @@ class FakeYouTubeGateway:
         self.channel_hydration_error = None
         self.video_details_incomplete = False
         self.channel_details_incomplete = False
+        self.strict_hydration = False
 
     def refresh_access_token(self, refresh_token):
         self.refresh_calls += 1
@@ -113,7 +117,10 @@ class FakeYouTubeGateway:
         for cid in channel_ids:
             if cid in self.channels_details:
                 res.append(self.channels_details[cid])
-            elif not getattr(self, "channel_details_incomplete", False):
+            elif (
+                not getattr(self, "channel_details_incomplete", False)
+                and not getattr(self, "strict_hydration", False)
+            ):
                 res.append({
                     "youtube_channel_id": cid,
                     "title": f"Canal {cid}",
@@ -122,7 +129,7 @@ class FakeYouTubeGateway:
                     "uploads_playlist_id": f"UU_{cid}"
                 })
         if getattr(self, "channel_details_incomplete", False) and len(res) < len(channel_ids):
-            res.incomplete = True
+            return HydrationResult(items=res, complete=False)
         return res
 
     def fetch_playlist_items(self, access_token, playlist_id, limit=50, page_token=None):
@@ -139,14 +146,14 @@ class FakeYouTubeGateway:
             found = next((d for d in self.video_details if d["youtube_video_id"] == vid), None)
             if found:
                 res.append(found)
-            elif not getattr(self, "video_details_incomplete", False):
+            elif not getattr(self, "video_details_incomplete", False) and not getattr(self, "strict_hydration", False):
                 res.append({
                     "youtube_video_id": vid,
                     "duration_seconds": 600,
                     "content_type": "video"
                 })
         if getattr(self, "video_details_incomplete", False) and len(res) < len(video_ids):
-            res.incomplete = True
+            return HydrationResult(items=res, complete=False)
         return res
 
     def search_videos(

@@ -29,7 +29,7 @@ class QuotaFailureGateway(FakeYouTubeGateway):
                     "published_at": "2026-07-30T10:00:00Z",
                     "thumbnail_url": "thumb_1",
                     "channel_title": f"Canal Foto {self.search_call_count}",
-                    "youtube_channel_id": f"UC_FOTO_{self.search_call_count}"
+                    "youtube_channel_id": f"UC_FOTO_{self.search_call_count}",
                 }
             ]
         else:
@@ -43,12 +43,12 @@ class TimeoutGateway(FakeYouTubeGateway):
         raise TimeoutError("YouTube API call timed out: token=SECRET_TOKEN https://private.internal/api")
 
 
-def setup_base_db(conn):
+def setup_base_db(conn, include_topic=True):
     """Auxiliar para inicializar credenciales, categoría 1 y datos del lote previo."""
     conn.execute(
         "INSERT INTO credentials (id, access_token, refresh_token, expires_at, updated_at) "
         "VALUES (1, ?, ?, '2030-01-01T00:00:00Z', 'now')",
-        (encrypt_token("access"), encrypt_token("refresh"))
+        (encrypt_token("access"), encrypt_token("refresh")),
     )
     conn.execute(
         "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
@@ -62,11 +62,12 @@ def setup_base_db(conn):
         "INSERT INTO category_keywords (category_id, term, polarity, weight) "
         "VALUES (1, 'retrato', 'positive', 0.9)"
     )
-    conn.execute(
-        "INSERT INTO category_exploration_topics "
-        "(category_id, term, normalized_term, weight, status, source, created_at, updated_at) "
-        "VALUES (1, 'iluminacion', 'iluminacion', 1.0, 'approved', 'manual', 'now', 'now')"
-    )
+    if include_topic:
+        conn.execute(
+            "INSERT INTO category_exploration_topics "
+            "(category_id, term, normalized_term, weight, status, source, created_at, updated_at) "
+            "VALUES (1, 'iluminacion', 'iluminacion', 1.0, 'approved', 'manual', 'now', 'now')"
+        )
     conn.execute(
         "INSERT INTO refresh_runs "
         "(id, status, requested_stages_json, current_stage, requested_at, counters_json, errors_json) "
@@ -193,6 +194,89 @@ def test_corr_pub_02_quota_after_success_retains_previous_batch(app):
         conn.close()
 
 
+def test_corr_pub_incomplete_search_attempt_aborts_category(app):
+    """Corrección 1 — Si la cuota global impide completar las búsquedas de A, A se aborta."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=True)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.execute("""
+                INSERT INTO discovery_batches (
+                    refresh_run_id, category_id, target_total, selected_total,
+                    target_by_band_json, selected_by_band_json, shortfall_reason, generated_at
+                ) VALUES (
+                    1, 2, 8, 1, '{"related": 5, "adjacent": 2, "exploratory": 1}',
+                    '{"related": 1, "adjacent": 0, "exploratory": 0}', NULL, 'now'
+                )
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+    class IncompleteAttemptGateway(FakeYouTubeGateway):
+        def search_videos(
+            self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
+        ):
+            if "cine" in q:
+                raise YouTubeQuotaError("Quota exhausted during category B search")
+            return [
+                {
+                    "youtube_video_id": "vid_cat1_1",
+                    "title": "Fotografía profesional",
+                    "description": "Curso completo",
+                    "published_at": "2026-07-30T10:00:00Z",
+                    "thumbnail_url": "thumb_1",
+                    "channel_title": "Canal Foto 1",
+                    "youtube_channel_id": "UC_FOTO_1",
+                }
+            ]
+
+    gateway = IncompleteAttemptGateway()
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            orchestrator = RefreshOrchestrator(gateway=gateway)
+            orchestrator.run_refresh(conn, run_id=2, worker_id="w-1")
+            conn.commit()
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        cand_a = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert cand_a["status"] == "active", "Category A previous candidate must remain active"
+
+        batch_a_run2 = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()[0]
+        assert batch_a_run2 == 0, "Category A partial results must not be published"
+
+        batch_b_run2 = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 2"
+        ).fetchone()[0]
+        assert batch_b_run2 == 0, "Category B must retain previous batch"
+
+        run_row = conn.execute("SELECT status, errors_json FROM refresh_runs WHERE id = 2").fetchone()
+        assert run_row["status"] == "failed", "Run must fail as both categories were aborted"
+
+        errors = json.loads(run_row["errors_json"])
+        assert any(e.get("categoryId") == 1 and e.get("code") == "YOUTUBE_QUOTA_EXHAUSTED" for e in errors)
+        assert any(e.get("categoryId") == 2 and e.get("code") == "YOUTUBE_QUOTA_EXHAUSTED" for e in errors)
+    finally:
+        conn.close()
+
+
 def test_corr_pub_03_timeout_conserves_previous_batch(app):
     """CORR-PUB-03 — Timeout aborta la categoría, conserva el lote anterior y no expone datos sensibles."""
     db_path = app.config["DATABASE_PATH"]
@@ -229,7 +313,7 @@ def test_corr_pub_03_timeout_conserves_previous_batch(app):
 
 
 def test_corr_pub_04_incomplete_video_hydration_aborts_category(app):
-    """CORR-PUB-04 — Hidratación de videos marcada como incompleta aborta la categoría."""
+    """CORR-PUB-04 — Hidratación de videos marcada como incompleta aborta la categoría usando HydrationResult."""
     db_path = app.config["DATABASE_PATH"]
     with app.app_context():
         conn = get_db_connection(db_path)
@@ -247,7 +331,7 @@ def test_corr_pub_04_incomplete_video_hydration_aborts_category(app):
             "published_at": "2026-07-30T10:00:00Z",
             "thumbnail_url": "thumb_1",
             "channel_title": "Canal Foto 1",
-            "youtube_channel_id": "UC_FOTO_1"
+            "youtube_channel_id": "UC_FOTO_1",
         }
     ]
     fake_gateway.video_details_incomplete = True
@@ -277,6 +361,65 @@ def test_corr_pub_04_incomplete_video_hydration_aborts_category(app):
         conn.close()
 
 
+def test_corr_pub_individual_disposable_absence_publishes(app):
+    """Corrección 3 — Ausencia individual descartable: respuesta completa (complete=True) publica candidato válido."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn)
+        finally:
+            conn.close()
+
+    fake_gateway = FakeYouTubeGateway()
+    fake_gateway.strict_hydration = True
+    fake_gateway.search_responses["default"] = [
+        {
+            "youtube_video_id": "v_exists",
+            "title": "Fotografía de retrato",
+            "description": "Curso básico",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_1",
+            "channel_title": "Canal A Completo",
+            "youtube_channel_id": "UC_A",
+        },
+        {
+            "youtube_video_id": "v_missing",
+            "title": "Fotografía borrada",
+            "description": "Video no encontrado",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_2",
+            "channel_title": "Canal A Completo",
+            "youtube_channel_id": "UC_A",
+        },
+    ]
+    fake_gateway.video_details = [{"youtube_video_id": "v_exists", "duration_seconds": 600, "content_type": "video"}]
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        old_cand = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert old_cand["status"] == "expired", "Old candidate must expire"
+
+        active_cands = conn.execute(
+            "SELECT count(*) FROM discovery_candidates WHERE status = 'active' AND last_refresh_run_id = 2"
+        ).fetchone()[0]
+        assert active_cands == 1
+
+        assert stats["categories"][1]["failed"] is False
+    finally:
+        conn.close()
+
+
 def test_corr_pub_05_channel_hydration_failure_aborts_category(app):
     """CORR-PUB-05 — Fallo al hidratar canales aborta la categoría sin expirar nada."""
     db_path = app.config["DATABASE_PATH"]
@@ -296,7 +439,7 @@ def test_corr_pub_05_channel_hydration_failure_aborts_category(app):
             "published_at": "2026-07-30T10:00:00Z",
             "thumbnail_url": "thumb_1",
             "channel_title": "Canal Foto 1",
-            "youtube_channel_id": "UC_FOTO_1"
+            "youtube_channel_id": "UC_FOTO_1",
         }
     ]
     fake_gateway.channel_hydration_error = RuntimeError("Channel API failure")
@@ -341,7 +484,7 @@ def test_corr_pub_06_valid_partial_batch(app):
             "published_at": f"2026-07-30T{10+i}:00:00Z",
             "thumbnail_url": f"thumb_{i}",
             "channel_title": f"Canal Foto {i}",
-            "youtube_channel_id": f"UC_FOTO_{i}"
+            "youtube_channel_id": f"UC_FOTO_{i}",
         })
     fake_gateway.search_responses["default"] = search_results
 
@@ -379,13 +522,164 @@ def test_corr_pub_06_valid_partial_batch(app):
         conn.close()
 
 
-def test_corr_pub_07_isolated_categories(app):
-    """CORR-PUB-07 — Categoría 1 publica exitosamente y Categoría 2 falla por cuota: se aislan perfectamente."""
+def test_corr_pub_empty_batch_insufficient_signals(app):
+    """Corrección 2.1 — Batch vacío por falta de señales: persiste batch, expira candidatos anteriores."""
     db_path = app.config["DATABASE_PATH"]
     with app.app_context():
         conn = get_db_connection(db_path)
         try:
-            setup_base_db(conn)
+            conn.execute(
+                "INSERT INTO credentials (id, access_token, refresh_token, expires_at, updated_at) "
+                "VALUES (1, ?, ?, '2030-01-01T00:00:00Z', 'now')",
+                (encrypt_token("access"), encrypt_token("refresh")),
+            )
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (1, 'Vacia', 'vacia', 1, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO channels (id, youtube_channel_id, title, created_at, updated_at) "
+                "VALUES (10, 'UC_OLD', 'Canal Viejo', 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO videos (id, youtube_video_id, channel_id, title, published_at, created_at, updated_at) "
+                "VALUES (20, 'vid_old', 10, 'Video Viejo', '2026-07-20T10:00:00Z', 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO refresh_runs "
+                "(id, status, requested_stages_json, current_stage, requested_at, counters_json, errors_json) "
+                "VALUES (1, 'succeeded', '[\"discovery\"]', 'discovery', 'now', '{}', '[]')"
+            )
+            conn.execute("""
+                INSERT INTO discovery_candidates (
+                    video_id, category_id, score, band, reasons_json, status,
+                    last_refresh_run_id, selection_rank, first_seen_at, last_seen_at
+                ) VALUES (20, 1, 60.0, 'related', '["Old"]', 'active', 1, 1, 'now', 'now')
+            """)
+            conn.execute(
+                "INSERT INTO refresh_runs "
+                "(id, status, requested_stages_json, current_stage, requested_at, counters_json, errors_json) "
+                "VALUES (2, 'running', '[\"discovery\"]', 'discovery', 'now', '{}', '[]')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    fake_gateway = FakeYouTubeGateway()
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        old_cand = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert old_cand["status"] == "expired", "Previous candidate must be expired"
+
+        batch_row = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()
+        assert batch_row is not None, "Empty batch must be persisted"
+        assert batch_row["selected_total"] == 0
+        assert batch_row["shortfall_reason"] == "insufficient_signals"
+        assert stats["categories"][1]["failed"] is False
+    finally:
+        conn.close()
+
+
+def test_corr_pub_empty_batch_no_results(app):
+    """Corrección 2.2 — Cero resultados externos exitosos: persiste batch con shortfall_reason, expira anteriores."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+        finally:
+            conn.close()
+
+    fake_gateway = FakeYouTubeGateway()
+    fake_gateway.search_responses["default"] = []
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        old_cand = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert old_cand["status"] == "expired", "Previous candidate must be expired"
+
+        batch_row = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()
+        assert batch_row is not None, "Empty batch must be persisted"
+        assert batch_row["selected_total"] == 0
+        assert batch_row["shortfall_reason"] == "insufficient_candidates"
+        assert stats["categories"][1]["failed"] is False
+    finally:
+        conn.close()
+
+
+def test_corr_pub_empty_batch_transaction_rollback(app):
+    """Corrección 2.3 — Fallo durante transacción de batch vacío realiza rollback total dejando lote previo intacto."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+        finally:
+            conn.close()
+
+    fake_gateway = FakeYouTubeGateway()
+    fake_gateway.search_responses["default"] = []
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            with patch.object(
+                DiscoveryRepository, "expire_previous_candidates", side_effect=RuntimeError("Expire crash")
+            ):
+                stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        old_cand = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert old_cand["status"] == "active", "Old candidate must remain active after rollback"
+
+        batch_run2 = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()[0]
+        assert batch_run2 == 0, "No batch must be created after rollback"
+        assert stats["categories"][1]["failed"] is True
+    finally:
+        conn.close()
+
+
+def test_corr_pub_07_isolated_categories(app):
+    """CORR-PUB-07 — Categoría 1 completa búsquedas; Categoría 2 falla por cuota posteriormente."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
             conn.execute(
                 "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
                 "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
@@ -421,7 +715,7 @@ def test_corr_pub_07_isolated_categories(app):
                     "published_at": "2026-07-30T10:00:00Z",
                     "thumbnail_url": "thumb_1",
                     "channel_title": "Canal Foto 1",
-                    "youtube_channel_id": "UC_FOTO_1"
+                    "youtube_channel_id": "UC_FOTO_1",
                 }
             ]
 
@@ -460,7 +754,7 @@ def test_corr_pub_07_isolated_categories(app):
 
 
 def test_corr_pub_08_publication_exception_rolls_back(app):
-    """CORR-PUB-08 — Una excepción durante la escritura en SQLite produce un rollback atómico completo."""
+    """CORR-PUB-08 — Excepción en expire_previous_candidates produce rollback atómico real."""
     db_path = app.config["DATABASE_PATH"]
     with app.app_context():
         conn = get_db_connection(db_path)
@@ -478,7 +772,7 @@ def test_corr_pub_08_publication_exception_rolls_back(app):
             "published_at": "2026-07-30T10:00:00Z",
             "thumbnail_url": "thumb_1",
             "channel_title": "Canal Foto 1",
-            "youtube_channel_id": "UC_FOTO_1"
+            "youtube_channel_id": "UC_FOTO_1",
         }
     ]
 
@@ -486,9 +780,10 @@ def test_corr_pub_08_publication_exception_rolls_back(app):
         conn = get_db_connection(db_path)
         try:
             service = DiscoveryService(gateway=fake_gateway)
-
             with patch.object(
-                DiscoveryRepository, "save_discovery_candidate", side_effect=RuntimeError("DB write crash")
+                DiscoveryRepository,
+                "expire_previous_candidates",
+                side_effect=RuntimeError("DB write crash during expire"),
             ):
                 stats = service.run_discovery(conn, run_id=2)
         finally:
@@ -496,20 +791,22 @@ def test_corr_pub_08_publication_exception_rolls_back(app):
 
     conn = get_db_connection(db_path)
     try:
+        chans = conn.execute("SELECT count(*) FROM channels WHERE youtube_channel_id = 'UC_FOTO_1'").fetchone()[0]
+        assert chans == 0, "New channel must be rolled back"
+
+        vids = conn.execute("SELECT count(*) FROM videos WHERE youtube_video_id = 'vid_err_1'").fetchone()[0]
+        assert vids == 0, "New video must be rolled back"
+
+        cands = conn.execute("SELECT count(*) FROM discovery_candidates WHERE last_refresh_run_id = 2").fetchone()[0]
+        assert cands == 0, "New candidate must be rolled back"
+
+        batches = conn.execute("SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2").fetchone()[0]
+        assert batches == 0, "New batch must be rolled back"
+
         old_cand = conn.execute(
             "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
         ).fetchone()
         assert old_cand["status"] == "active", "Candidato anterior debe mantenerse activo"
-
-        new_cands = conn.execute(
-            "SELECT count(*) FROM discovery_candidates WHERE last_refresh_run_id = 2"
-        ).fetchone()[0]
-        assert new_cands == 0, "No debe guardarse ningún candidato parcial"
-
-        new_batch = conn.execute(
-            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2"
-        ).fetchone()[0]
-        assert new_batch == 0, "No debe guardarse ningún batch parcial"
 
         assert stats["categories"][1]["failed"] is True
     finally:
@@ -517,7 +814,7 @@ def test_corr_pub_08_publication_exception_rolls_back(app):
 
 
 def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
-    """CORR-PUB-09 — Después de un intento abortado, un reintento exitoso no duplica entidades y publica limpiamente."""
+    """CORR-PUB-09 — Intento abortado (run 2), refresh exitoso (run 3) y reintento con mismos datos (run 4)."""
     db_path = app.config["DATABASE_PATH"]
     with app.app_context():
         conn = get_db_connection(db_path)
@@ -526,7 +823,6 @@ def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
         finally:
             conn.close()
 
-    # 1. Intento abortado (run 2)
     fake_gateway_quota = QuotaFailureGateway(fail_at_call=1)
     with app.app_context():
         conn = get_db_connection(db_path)
@@ -536,7 +832,6 @@ def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
         finally:
             conn.close()
 
-    # Crear run 3 exitoso
     with app.app_context():
         conn = get_db_connection(db_path)
         try:
@@ -550,7 +845,6 @@ def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
         finally:
             conn.close()
 
-    # 2. Intento exitoso (run 3)
     fake_gateway_ok = FakeYouTubeGateway()
     fake_gateway_ok.search_responses["default"] = [
         {
@@ -560,7 +854,7 @@ def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
             "published_at": "2026-07-30T10:00:00Z",
             "thumbnail_url": "thumb_1",
             "channel_title": "Canal Foto 1",
-            "youtube_channel_id": "UC_FOTO_1"
+            "youtube_channel_id": "UC_FOTO_1",
         }
     ]
 
@@ -572,24 +866,91 @@ def test_corr_pub_09_idempotent_retry_after_aborted_attempt(app):
         finally:
             conn.close()
 
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            conn.execute(
+                "INSERT INTO refresh_runs "
+                "(id, status, worker_id, requested_stages_json, current_stage, "
+                "requested_at, counters_json, errors_json) "
+                "VALUES (4, 'running', 'w-1', '[\"discovery\"]', 'discovery', 'now', '{}', '[]')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway_ok)
+            stats4 = service.run_discovery(conn, run_id=4)
+        finally:
+            conn.close()
+
     conn = get_db_connection(db_path)
     try:
-        old_cand = conn.execute(
-            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
-        ).fetchone()
-        assert old_cand["status"] == "expired"
-
-        cands_run3 = conn.execute(
-            "SELECT count(*) FROM discovery_candidates WHERE last_refresh_run_id = 3 AND status = 'active'"
+        chans_count = conn.execute(
+            "SELECT count(*) FROM channels WHERE youtube_channel_id = 'UC_FOTO_1'"
         ).fetchone()[0]
-        assert cands_run3 == 1
+        assert chans_count == 1, "Exactly 1 channel row per youtube_channel_id"
+
+        vids_count = conn.execute("SELECT count(*) FROM videos WHERE youtube_video_id = 'vid_retry_1'").fetchone()[0]
+        assert vids_count == 1, "Exactly 1 video row per youtube_video_id"
+
+        cand_sql = (
+            "SELECT count(*) FROM discovery_candidates WHERE category_id = 1 AND video_id = "
+            "(SELECT id FROM videos WHERE youtube_video_id = 'vid_retry_1')"
+        )
+        cand_rows = conn.execute(cand_sql).fetchone()[0]
+        assert cand_rows == 1, "Exactly 1 candidate row per video/category"
+
+        active_cands = conn.execute(
+            "SELECT count(*) FROM discovery_candidates WHERE category_id = 1 AND status = 'active'"
+        ).fetchone()[0]
+        assert active_cands == 1, "Exactly 1 active candidate"
 
         batch_run3 = conn.execute(
             "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 3 AND category_id = 1"
         ).fetchone()[0]
         assert batch_run3 == 1
 
-        assert stats3["categories"][1]["selected"] == 1
+        batch_run4 = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 4 AND category_id = 1"
+        ).fetchone()[0]
+        assert batch_run4 == 1
+
+        old_cand = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert old_cand["status"] == "expired"
+
         assert stats3["categories"][1]["failed"] is False
+        assert stats4["categories"][1]["failed"] is False
     finally:
         conn.close()
+
+
+def test_corr_pub_logs_sanitization(app, caplog):
+    """Corrección 6 — Verifica que los errores procesados por DiscoveryService se registren sin datos sensibles."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn)
+        finally:
+            conn.close()
+
+    fake_gateway = TimeoutGateway()
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=fake_gateway)
+            service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    log_text = caplog.text
+    assert "SECRET_TOKEN" not in log_text, "SECRET_TOKEN must not leak into logs"
+    assert "token=" not in log_text, "token parameter must not leak into logs"
+    assert "private.internal" not in log_text, "private host must not leak into logs"
+    assert "https://" not in log_text, "URL must not leak into logs"

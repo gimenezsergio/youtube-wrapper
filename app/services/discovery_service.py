@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
-from app.domain.discovery.models import CategoryAttemptResult, PublicStageError
+from app.domain.discovery.models import CategoryAttemptResult, HydrationResult, PublicStageError
 from app.domain.discovery.query_builder import build_queries_for_category, schedule_queries_round_robin
 from app.domain.discovery.scoring import score_and_classify_candidate
 from app.domain.discovery.selection import select_batch_diverse
@@ -37,7 +37,7 @@ class DiscoveryService:
                 db.commit()
             except Exception as e:
                 db.rollback()
-                logger.warning(f"Error generando propuestas de temas para categoría {cat_id}: {e}")
+                logger.warning("Error generando propuestas de temas para categoría %s: %s", cat_id, type(e).__name__)
 
             signals = DiscoveryRepository.get_category_signals(db, cat_id, signal_window_days=signal_window)
             category_signals[cat_id] = signals
@@ -56,13 +56,27 @@ class DiscoveryService:
         relevance_language: str,
         category_ids: List[int],
         heartbeat_callback=None,
-    ) -> Tuple[int, bool, Dict[int, Dict[str, Any]], Dict[int, bool], Dict[int, Optional[PublicStageError]]]:
-        """Ejecuta las búsquedas programadas en round-robin."""
+    ) -> Tuple[
+        int,
+        bool,
+        Dict[int, Dict[str, Any]],
+        Dict[int, bool],
+        Dict[int, Optional[PublicStageError]],
+        Dict[int, int],
+        Dict[int, int],
+    ]:
+        """Ejecuta las búsquedas programadas en round-robin realizando seguimiento explícito."""
         searches_executed = 0
         quota_exhausted = False
         raw_items_by_cat: Dict[int, Dict[str, Any]] = {cat_id: {} for cat_id in category_ids}
         cat_aborted = {cat_id: False for cat_id in category_ids}
         cat_abort_error: Dict[int, Optional[PublicStageError]] = {cat_id: None for cat_id in category_ids}
+
+        scheduled_counts = {cat_id: 0 for cat_id in category_ids}
+        for cat_id, _ in scheduled_tasks:
+            scheduled_counts[cat_id] += 1
+
+        completed_counts = {cat_id: 0 for cat_id in category_ids}
 
         for cat_id, q_task in scheduled_tasks:
             if heartbeat_callback:
@@ -72,18 +86,17 @@ class DiscoveryService:
                 continue
 
             if quota_exhausted:
-                if not raw_items_by_cat[cat_id]:
-                    cat_aborted[cat_id] = True
-                    cat_abort_error[cat_id] = PublicStageError(
-                        stage="discovery",
-                        code="YOUTUBE_QUOTA_EXHAUSTED",
-                        message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
-                        category_id=cat_id,
-                    )
+                cat_aborted[cat_id] = True
+                cat_abort_error[cat_id] = PublicStageError(
+                    stage="discovery",
+                    code="YOUTUBE_QUOTA_EXHAUSTED",
+                    message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
+                    category_id=cat_id,
+                )
                 continue
 
             q_str = q_task["q"]
-            logger.info(f"Ejecutando búsqueda para categoría {cat_id}: '{q_str}'")
+            logger.info("Ejecutando búsqueda para categoría %s", cat_id)
 
             try:
                 items = self.gateway.search_videos(
@@ -95,11 +108,12 @@ class DiscoveryService:
                     relevance_language=relevance_language,
                 )
                 searches_executed += 1
+                completed_counts[cat_id] += 1
                 for item in items:
                     v_id = item["youtube_video_id"]
                     raw_items_by_cat[cat_id][v_id] = item
-            except YouTubeQuotaError as eq:
-                logger.error(f"Cuota de YouTube agotada en categoría {cat_id}: {eq}")
+            except YouTubeQuotaError:
+                logger.error("Cuota de YouTube agotada en categoría %s", cat_id)
                 quota_exhausted = True
                 cat_aborted[cat_id] = True
                 cat_abort_error[cat_id] = PublicStageError(
@@ -115,28 +129,51 @@ class DiscoveryService:
                     if _is_timeout_error(e)
                     else f"Error al realizar búsquedas para la categoría {cat_id}. Se conservó el lote anterior."
                 )
-                logger.error(f"Error en búsqueda para categoría {cat_id}: {e}")
+                logger.error("Error en búsqueda para categoría %s (%s)", cat_id, type(e).__name__)
                 cat_aborted[cat_id] = True
                 cat_abort_error[cat_id] = PublicStageError(
                     stage="discovery", code=err_code, message=err_msg, category_id=cat_id
                 )
 
-        return searches_executed, quota_exhausted, raw_items_by_cat, cat_aborted, cat_abort_error
+        return (
+            searches_executed,
+            quota_exhausted,
+            raw_items_by_cat,
+            cat_aborted,
+            cat_abort_error,
+            scheduled_counts,
+            completed_counts,
+        )
 
     def _hydrate_category(
         self, access_token: str, cat_id: int, unique_items: List[Dict[str, Any]]
     ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[PublicStageError], bool]:
-        """Hidrata videos y canales de una categoría."""
+        """Hidrata videos y canales de una categoría aceptando HydrationResult o list."""
         video_ids = [item["youtube_video_id"] for item in unique_items]
         channel_ids = list({item["youtube_channel_id"] for item in unique_items})
 
         try:
             videos_details = self.gateway.get_videos_details(access_token, video_ids)
-            if getattr(videos_details, "incomplete", False):
-                raise Exception("Hidratación de videos incompleta")
-            v_details_map = {vd["youtube_video_id"]: vd for vd in videos_details}
-        except YouTubeQuotaError as eq:
-            logger.error(f"Cuota agotada al hidratar videos en categoría {cat_id}: {eq}")
+            if isinstance(videos_details, HydrationResult):
+                v_details_list = videos_details.items
+                v_complete = videos_details.complete
+            else:
+                v_details_list = videos_details
+                v_complete = True
+
+            if not v_complete:
+                logger.error("Hidratación de videos incompleta para categoría %s", cat_id)
+                err = PublicStageError(
+                    stage="discovery",
+                    code="EXTERNAL_ERROR",
+                    message=f"Error al hidratar videos para la categoría {cat_id}. Se conservó el lote anterior.",
+                    category_id=cat_id,
+                )
+                return None, None, err, False
+
+            v_details_map = {vd["youtube_video_id"]: vd for vd in v_details_list}
+        except YouTubeQuotaError:
+            logger.error("Cuota agotada al hidratar videos en categoría %s", cat_id)
             err = PublicStageError(
                 stage="discovery",
                 code="YOUTUBE_QUOTA_EXHAUSTED",
@@ -151,17 +188,32 @@ class DiscoveryService:
                 if _is_timeout_error(ev)
                 else f"Error al hidratar videos para la categoría {cat_id}. Se conservó el lote anterior."
             )
-            logger.error(f"Error al hidratar videos para categoría {cat_id}: {ev}")
+            logger.error("Error al hidratar videos para categoría %s (%s)", cat_id, type(ev).__name__)
             err = PublicStageError(stage="discovery", code=err_code, message=err_msg, category_id=cat_id)
             return None, None, err, False
 
         try:
             channels_details = self.gateway.get_channels_details(access_token, channel_ids)
-            if getattr(channels_details, "incomplete", False):
-                raise Exception("Hidratación de canales incompleta")
-            c_details_map = {cd["youtube_channel_id"]: cd for cd in channels_details}
-        except YouTubeQuotaError as eq:
-            logger.error(f"Cuota agotada al hidratar canales en categoría {cat_id}: {eq}")
+            if isinstance(channels_details, HydrationResult):
+                c_details_list = channels_details.items
+                c_complete = channels_details.complete
+            else:
+                c_details_list = channels_details
+                c_complete = True
+
+            if not c_complete:
+                logger.error("Hidratación de canales incompleta para categoría %s", cat_id)
+                err = PublicStageError(
+                    stage="discovery",
+                    code="EXTERNAL_ERROR",
+                    message=f"Error al hidratar canales para la categoría {cat_id}. Se conservó el lote anterior.",
+                    category_id=cat_id,
+                )
+                return None, None, err, False
+
+            c_details_map = {cd["youtube_channel_id"]: cd for cd in c_details_list}
+        except YouTubeQuotaError:
+            logger.error("Cuota agotada al hidratar canales en categoría %s", cat_id)
             err = PublicStageError(
                 stage="discovery",
                 code="YOUTUBE_QUOTA_EXHAUSTED",
@@ -176,7 +228,7 @@ class DiscoveryService:
                 if _is_timeout_error(ec)
                 else f"Error al hidratar canales para la categoría {cat_id}. Se conservó el lote anterior."
             )
-            logger.error(f"Error al hidratar canales para categoría {cat_id}: {ec}")
+            logger.error("Error al hidratar canales para categoría %s (%s)", cat_id, type(ec).__name__)
             err = PublicStageError(stage="discovery", code=err_code, message=err_msg, category_id=cat_id)
             return None, None, err, False
 
@@ -276,7 +328,7 @@ class DiscoveryService:
                     "exploratory": config["mix_exploratory"],
                 },
                 "selectedByBand": counts["selectedByBand"],
-                "shortfall_reason": shortfall,
+                "shortfall_reason": shortfall if shortfall else "insufficient_candidates",
             },
             selected_items_data=selected_tuples,
         )
@@ -284,37 +336,22 @@ class DiscoveryService:
     def _publish_category(
         self, db_path: str, run_id: int, cat_id: int, attempt: CategoryAttemptResult
     ) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
-        """Publica atómicamente una categoría en SQLite."""
+        """Publica atómicamente una categoría en SQLite (incluyendo lotes vacíos)."""
         if attempt.outcome == "aborted":
             err_dict = attempt.error.to_dict() if attempt.error else None
             shortfall_code = attempt.error.code.lower() if attempt.error else "external_error"
             return {"selected": 0, "shortfall": shortfall_code, "failed": True}, err_dict
 
-        if len(attempt.candidates) == 0:
-            shortfall_reason = attempt.summary.get("shortfall_reason") if attempt.summary else "no_results"
-            if shortfall_reason == "insufficient_signals":
-                from app.db import get_db_connection
-
-                cat_conn = get_db_connection(db_path)
-                try:
-                    cat_conn.execute("BEGIN IMMEDIATE")
-                    DiscoveryRepository.save_discovery_batch(
-                        cat_conn, run_id, cat_id, attempt.summary, shortfall_reason="insufficient_signals"
-                    )
-                    cat_conn.commit()
-                except Exception as e:
-                    cat_conn.rollback()
-                    logger.error(f"Error guardando batch de insuficientes señales para categoría {cat_id}: {e}")
-                finally:
-                    cat_conn.close()
-
-            return {"selected": 0, "shortfall": shortfall_reason or "no_results", "failed": False}, None
+        shortfall = attempt.summary.get("shortfall_reason") if attempt.summary else "insufficient_candidates"
+        if not shortfall or shortfall == "no_results":
+            shortfall = "insufficient_candidates"
 
         from app.db import get_db_connection
 
         cat_conn = get_db_connection(db_path)
         try:
             cat_conn.execute("BEGIN IMMEDIATE")
+
             for candidate, chan_data, video_data in attempt.selected_items_data:
                 cid, vid = DiscoveryRepository.upsert_channel_and_video(cat_conn, chan_data, video_data)
                 candidate.channel_id = cid
@@ -322,17 +359,17 @@ class DiscoveryService:
                 DiscoveryRepository.save_discovery_candidate(cat_conn, candidate, run_id)
 
             counts_dict = {
-                "targetByBand": attempt.summary["targetByBand"],
-                "selectedByBand": attempt.summary["selectedByBand"],
+                "targetByBand": attempt.summary["targetByBand"] if attempt.summary else {},
+                "selectedByBand": attempt.summary["selectedByBand"] if attempt.summary else {},
             }
-            shortfall = attempt.summary.get("shortfall_reason")
             DiscoveryRepository.save_discovery_batch(cat_conn, run_id, cat_id, counts_dict, shortfall)
             DiscoveryRepository.expire_previous_candidates(cat_conn, cat_id, run_id)
+
             cat_conn.commit()
             return {"selected": len(attempt.candidates), "shortfall": shortfall, "failed": False}, None
         except Exception as e:
             cat_conn.rollback()
-            logger.exception(f"Error al publicar lote para categoría {cat_id}: {e}")
+            logger.exception("Error al publicar lote para categoría %s: %s", cat_id, type(e).__name__)
             err = PublicStageError(
                 stage="discovery",
                 code="EXTERNAL_ERROR",
@@ -342,6 +379,79 @@ class DiscoveryService:
             return {"selected": 0, "shortfall": "external_error", "failed": True}, err.to_dict()
         finally:
             cat_conn.close()
+
+    def _evaluate_all_attempts(
+        self,
+        db,
+        category_ids: List[int],
+        category_signals: Dict[int, Any],
+        cat_aborted: Dict[int, bool],
+        cat_abort_error: Dict[int, Optional[PublicStageError]],
+        raw_items_by_cat: Dict[int, Dict[str, Any]],
+        access_token: str,
+        now: datetime,
+        config: Dict[str, Any],
+    ) -> Tuple[Dict[int, CategoryAttemptResult], bool]:
+        """Evalúa e hidrata los intentos de cada categoría."""
+        attempt_results: Dict[int, CategoryAttemptResult] = {}
+        quota_exhausted = False
+
+        for cat_id in category_ids:
+            signals = category_signals[cat_id]
+            if not signals.positive_keywords and not signals.seed_channel_ids:
+                attempt_results[cat_id] = CategoryAttemptResult(
+                    category_id=cat_id,
+                    outcome="publishable",
+                    candidates=[],
+                    summary={
+                        "targetByBand": {
+                            "related": config["mix_related"],
+                            "adjacent": config["mix_adjacent"],
+                            "exploratory": config["mix_exploratory"],
+                        },
+                        "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0},
+                        "shortfall_reason": "insufficient_signals",
+                    },
+                )
+                continue
+
+            if cat_aborted[cat_id]:
+                attempt_results[cat_id] = CategoryAttemptResult(
+                    category_id=cat_id, outcome="aborted", error=cat_abort_error[cat_id]
+                )
+                continue
+
+            unique_items = list(raw_items_by_cat[cat_id].values())
+            if not unique_items:
+                attempt_results[cat_id] = CategoryAttemptResult(
+                    category_id=cat_id,
+                    outcome="publishable",
+                    candidates=[],
+                    summary={
+                        "targetByBand": {
+                            "related": config["mix_related"],
+                            "adjacent": config["mix_adjacent"],
+                            "exploratory": config["mix_exploratory"],
+                        },
+                        "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0},
+                        "shortfall_reason": "insufficient_candidates",
+                    },
+                )
+                continue
+
+            v_map, c_map, hyd_err, is_quota = self._hydrate_category(access_token, cat_id, unique_items)
+            if is_quota:
+                quota_exhausted = True
+
+            if hyd_err:
+                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=hyd_err)
+                continue
+
+            attempt_results[cat_id] = self._score_and_select_category(
+                db, cat_id, signals, unique_items, v_map, c_map, now, config
+            )
+
+        return attempt_results, quota_exhausted
 
     def run_discovery(self, db, run_id: int, heartbeat_callback=None) -> dict:
         """Ejecuta la canalización de descubrimiento en 5 pasos."""
@@ -382,74 +492,47 @@ class DiscoveryService:
             category_queries, global_budget=config["global_budget"], max_per_category=config["category_budget"]
         )
 
-        searches_executed, quota_exhausted, raw_items_by_cat, cat_aborted, cat_abort_error = (
-            self._execute_searches(
-                access_token,
-                scheduled_tasks,
-                published_after,
-                config["results_per_search"],
-                config["region_code"],
-                config["relevance_language"],
-                category_ids,
-                heartbeat_callback,
-            )
+        (
+            searches_executed,
+            quota_exhausted,
+            raw_items_by_cat,
+            cat_aborted,
+            cat_abort_error,
+            scheduled_counts,
+            completed_counts,
+        ) = self._execute_searches(
+            access_token,
+            scheduled_tasks,
+            published_after,
+            config["results_per_search"],
+            config["region_code"],
+            config["relevance_language"],
+            category_ids,
+            heartbeat_callback,
         )
 
-        attempt_results: Dict[int, CategoryAttemptResult] = {}
         for cat_id in category_ids:
-            signals = category_signals[cat_id]
-            if not signals.positive_keywords and not signals.seed_channel_ids:
-                attempt_results[cat_id] = CategoryAttemptResult(
-                    category_id=cat_id,
-                    outcome="publishable",
-                    candidates=[],
-                    summary={
-                        "targetByBand": {
-                            "related": config["mix_related"],
-                            "adjacent": config["mix_adjacent"],
-                            "exploratory": config["mix_exploratory"],
-                        },
-                        "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0},
-                        "shortfall_reason": "insufficient_signals",
-                    },
-                )
-                continue
+            if scheduled_counts[cat_id] > 0 and completed_counts[cat_id] < scheduled_counts[cat_id]:
+                cat_aborted[cat_id] = True
+                if not cat_abort_error[cat_id]:
+                    cat_abort_error[cat_id] = PublicStageError(
+                        stage="discovery",
+                        code="YOUTUBE_QUOTA_EXHAUSTED" if quota_exhausted else "EXTERNAL_ERROR",
+                        message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
+                        category_id=cat_id,
+                    )
 
-            if cat_aborted[cat_id]:
-                attempt_results[cat_id] = CategoryAttemptResult(
-                    category_id=cat_id, outcome="aborted", error=cat_abort_error[cat_id]
-                )
-                continue
-
-            unique_items = list(raw_items_by_cat[cat_id].values())
-            if not unique_items:
-                attempt_results[cat_id] = CategoryAttemptResult(
-                    category_id=cat_id,
-                    outcome="publishable",
-                    candidates=[],
-                    summary={
-                        "targetByBand": {
-                            "related": config["mix_related"],
-                            "adjacent": config["mix_adjacent"],
-                            "exploratory": config["mix_exploratory"],
-                        },
-                        "selectedByBand": {"related": 0, "adjacent": 0, "exploratory": 0},
-                        "shortfall_reason": "no_results",
-                    },
-                )
-                continue
-
-            v_map, c_map, hyd_err, is_quota = self._hydrate_category(access_token, cat_id, unique_items)
-            if is_quota:
-                quota_exhausted = True
-
-            if hyd_err:
-                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=hyd_err)
-                continue
-
-            attempt_results[cat_id] = self._score_and_select_category(
-                db, cat_id, signals, unique_items, v_map, c_map, now, config
-            )
+        attempt_results, hyd_quota = self._evaluate_all_attempts(
+            db,
+            category_ids,
+            category_signals,
+            cat_aborted,
+            cat_abort_error,
+            raw_items_by_cat,
+            access_token,
+            now,
+            config,
+        )
 
         db_path = current_app.config["DATABASE_PATH"]
         stats_by_category = {}
@@ -464,7 +547,7 @@ class DiscoveryService:
 
         return {
             "searches_executed": searches_executed,
-            "quota_exhausted": quota_exhausted,
+            "quota_exhausted": quota_exhausted or hyd_quota,
             "categories": stats_by_category,
             "errors": public_errors,
         }

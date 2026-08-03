@@ -127,3 +127,11 @@ class CategoryAttemptResult:
         self.summary = summary
         self.error = error
         self.selected_items_data = selected_items_data or []
+
+
+class HydrationResult:
+    """Resultado tipado de hidratación de videos o canales."""
+
+    def __init__(self, items: List[Dict[str, Any]], complete: bool = True):
+        self.items = items
+        self.complete = complete
