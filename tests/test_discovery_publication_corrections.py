@@ -1289,3 +1289,207 @@ def test_corr_pub_hydration_quota_isolated_successful_category(app):
         assert cat2_batch == 0
     finally:
         conn.close()
+
+
+def test_corr_pub_local_category_after_hydration_quota(app):
+    """Regresión 1 — Categoría A agota cuota en hidratación; Categoría B posterior sin señales publica batch vacío."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Vacia', 'vacia', 2, 'now', 'now')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class QuotaOnCatAHydrationGateway(FakeYouTubeGateway):
+        def get_videos_details(self, access_token, video_ids):
+            self.video_hydration_calls += 1
+            raise YouTubeQuotaError("Quota exhausted on Category A video hydration")
+
+    gateway = QuotaOnCatAHydrationGateway()
+    gateway.search_responses["default"] = [
+        {
+            "youtube_video_id": "vid_cat1_1",
+            "title": "Fotografía de retrato 1",
+            "description": "Curso completo",
+            "published_at": "2026-07-30T10:00:00Z",
+            "thumbnail_url": "thumb_1",
+            "channel_title": "Canal A",
+            "youtube_channel_id": "UC_A",
+        }
+    ]
+
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            orchestrator = RefreshOrchestrator(gateway=gateway)
+            orchestrator.run_refresh(conn, run_id=2, worker_id="w-1")
+            conn.commit()
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        run_row = conn.execute("SELECT status FROM refresh_runs WHERE id = 2").fetchone()
+        assert run_row["status"] == "partial", "Refresh run must be partial because Cat B succeeded"
+
+        cat1_batch = conn.execute(
+            "SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2 AND category_id = 1"
+        ).fetchone()[0]
+        assert cat1_batch == 0, "Cat A must not create a batch"
+
+        cand_old_a = conn.execute(
+            "SELECT status FROM discovery_candidates WHERE video_id = 20 AND category_id = 1"
+        ).fetchone()
+        assert cand_old_a["status"] == "active", "Cat A old candidates remain active"
+
+        cat2_batch = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 2"
+        ).fetchone()
+        assert cat2_batch is not None, "Cat B must publish empty batch"
+        assert cat2_batch["selected_total"] == 0
+        assert cat2_batch["shortfall_reason"] == "insufficient_signals"
+        assert len(gateway.search_calls) == 1
+    finally:
+        conn.close()
+
+
+def test_corr_pub_preserve_previous_search_error_after_hydration_quota(app):
+    """Regresión 2 — Categoría B falló en búsqueda; cuota de A en hidratación conserva el error de B."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class SearchTimeoutAndHydrationQuotaGateway(FakeYouTubeGateway):
+        def search_videos(
+            self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
+        ):
+            if "cine" in q:
+                raise TimeoutError("YouTube API call timed out: token=SECRET_TOKEN")
+            return [
+                {
+                    "youtube_video_id": "vid_cat1_1",
+                    "title": "Fotografía de retrato 1",
+                    "description": "Curso completo",
+                    "published_at": "2026-07-30T10:00:00Z",
+                    "thumbnail_url": "thumb_1",
+                    "channel_title": "Canal A",
+                    "youtube_channel_id": "UC_A",
+                }
+            ]
+
+        def get_videos_details(self, access_token, video_ids):
+            self.video_hydration_calls += 1
+            raise YouTubeQuotaError("Quota exhausted during Cat A video hydration")
+
+    gateway = SearchTimeoutAndHydrationQuotaGateway()
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        errors = stats["errors"]
+        err_a = next((e for e in errors if e.get("categoryId") == 1), None)
+        err_b = next((e for e in errors if e.get("categoryId") == 2), None)
+
+        assert err_a is not None and err_a["code"] == "YOUTUBE_QUOTA_EXHAUSTED"
+        assert err_b is not None and err_b["code"] == "YOUTUBE_TIMEOUT"
+
+        assert gateway.video_hydration_calls == 1
+
+        batches = conn.execute("SELECT count(*) FROM discovery_batches WHERE refresh_run_id = 2").fetchone()[0]
+        assert batches == 0
+    finally:
+        conn.close()
+
+
+def test_corr_pub_empty_search_completed_after_hydration_quota(app):
+    """Regresión 3 — Categoría B completó búsqueda sin resultados; cuota de A respeta el resultado de B."""
+    db_path = app.config["DATABASE_PATH"]
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            setup_base_db(conn, include_topic=False)
+            conn.execute(
+                "INSERT INTO categories (id, name, normalized_name, position, created_at, updated_at) "
+                "VALUES (2, 'Cine', 'cine', 2, 'now', 'now')"
+            )
+            conn.execute(
+                "INSERT INTO category_keywords (category_id, term, polarity, weight) "
+                "VALUES (2, 'cine', 'positive', 1.0)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    class EmptySearchCatBAndQuotaCatAGateway(FakeYouTubeGateway):
+        def search_videos(
+            self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
+        ):
+            if "cine" in q:
+                return []
+            return [
+                {
+                    "youtube_video_id": "vid_cat1_1",
+                    "title": "Fotografía de retrato 1",
+                    "description": "Curso completo",
+                    "published_at": "2026-07-30T10:00:00Z",
+                    "thumbnail_url": "thumb_1",
+                    "channel_title": "Canal A",
+                    "youtube_channel_id": "UC_A",
+                }
+            ]
+
+        def get_videos_details(self, access_token, video_ids):
+            self.video_hydration_calls += 1
+            raise YouTubeQuotaError("Quota exhausted during Cat A video hydration")
+
+    gateway = EmptySearchCatBAndQuotaCatAGateway()
+    with app.app_context():
+        conn = get_db_connection(db_path)
+        try:
+            service = DiscoveryService(gateway=gateway)
+            stats = service.run_discovery(conn, run_id=2)
+        finally:
+            conn.close()
+
+    conn = get_db_connection(db_path)
+    try:
+        cat_b_stat = stats["categories"][2]
+        assert cat_b_stat["failed"] is False, "Category B must be publishable"
+        assert cat_b_stat["selected"] == 0
+        assert cat_b_stat["shortfall"] == "insufficient_candidates"
+
+        cat2_batch = conn.execute(
+            "SELECT selected_total, shortfall_reason FROM discovery_batches "
+            "WHERE refresh_run_id = 2 AND category_id = 2"
+        ).fetchone()
+        assert cat2_batch is not None
+        assert cat2_batch["selected_total"] == 0
+        assert cat2_batch["shortfall_reason"] == "insufficient_candidates"
+    finally:
+        conn.close()

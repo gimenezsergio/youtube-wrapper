@@ -407,21 +407,19 @@ class DiscoveryService:
         now: datetime,
         config: Dict[str, Any],
     ) -> Tuple[Dict[int, CategoryAttemptResult], bool]:
-        """Evalúa e hidrata los intentos de cada categoría."""
+        """Evalúa e hidrata los intentos de cada categoría siguiendo el orden explícito obligatorio."""
         attempt_results: Dict[int, CategoryAttemptResult] = {}
         hydration_quota_exhausted = False
 
         for cat_id in category_ids:
-            if hydration_quota_exhausted:
-                err = PublicStageError(
-                    stage="discovery",
-                    code="YOUTUBE_QUOTA_EXHAUSTED",
-                    message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
-                    category_id=cat_id,
+            # 1. ¿Ya estaba abortada durante búsqueda? -> conservar error original
+            if cat_aborted[cat_id]:
+                attempt_results[cat_id] = CategoryAttemptResult(
+                    category_id=cat_id, outcome="aborted", error=cat_abort_error[cat_id]
                 )
-                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=err)
                 continue
 
+            # 2. ¿No tiene señales suficientes? -> publishable con batch vacío
             signals = category_signals[cat_id]
             if not signals.positive_keywords and not signals.seed_channel_ids:
                 attempt_results[cat_id] = CategoryAttemptResult(
@@ -440,12 +438,7 @@ class DiscoveryService:
                 )
                 continue
 
-            if cat_aborted[cat_id]:
-                attempt_results[cat_id] = CategoryAttemptResult(
-                    category_id=cat_id, outcome="aborted", error=cat_abort_error[cat_id]
-                )
-                continue
-
+            # 3. ¿Las búsquedas terminaron correctamente pero no devolvieron resultados? -> publishable con batch vacío
             unique_items = list(raw_items_by_cat[cat_id].values())
             if not unique_items:
                 attempt_results[cat_id] = CategoryAttemptResult(
@@ -464,6 +457,19 @@ class DiscoveryService:
                 )
                 continue
 
+            # 4. Tiene resultados que requieren hidratación:
+            # 4.1. Si la cuota de hidratación ya se agotó -> aborted por cuota sin llamar al gateway
+            if hydration_quota_exhausted:
+                err = PublicStageError(
+                    stage="discovery",
+                    code="YOUTUBE_QUOTA_EXHAUSTED",
+                    message="Se agotó la cuota de la API de YouTube. Se conservó el lote anterior.",
+                    category_id=cat_id,
+                )
+                attempt_results[cat_id] = CategoryAttemptResult(category_id=cat_id, outcome="aborted", error=err)
+                continue
+
+            # 4.2. Si todavía hay cuota -> hidratar normalmente
             v_map, c_map, hyd_err, is_quota = self._hydrate_category(access_token, cat_id, unique_items)
             if is_quota:
                 hydration_quota_exhausted = True
