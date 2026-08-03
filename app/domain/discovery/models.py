@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 
 class Band(Enum):
@@ -85,3 +85,45 @@ class DiscoveryCandidateDomain:
         self.reasons = reasons or []
         self.selection_rank = selection_rank
         self.category_id = category_id
+
+
+class PublicStageError:
+    def __init__(
+        self,
+        stage: str,
+        code: str,
+        message: str,
+        category_id: Optional[int] = None,
+    ):
+        self.stage = stage
+        self.code = code
+        self.message = message
+        self.category_id = category_id
+
+    def to_dict(self) -> Dict[str, Any]:
+        d = {
+            "stage": self.stage,
+            "code": self.code,
+            "message": self.message,
+        }
+        if self.category_id is not None:
+            d["categoryId"] = self.category_id
+        return d
+
+
+class CategoryAttemptResult:
+    def __init__(
+        self,
+        category_id: int,
+        outcome: Literal["publishable", "aborted"],
+        candidates: Optional[List[DiscoveryCandidateDomain]] = None,
+        summary: Optional[Dict[str, Any]] = None,
+        error: Optional[PublicStageError] = None,
+        selected_items_data: Optional[List[Any]] = None,
+    ):
+        self.category_id = category_id
+        self.outcome = outcome
+        self.candidates = candidates or []
+        self.summary = summary
+        self.error = error
+        self.selected_items_data = selected_items_data or []
