@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, List, Optional, Set, Tuple
 
 from app.domain.discovery.models import LocalSignal
 from app.domain.discovery.normalization import normalize_term
@@ -24,7 +24,6 @@ class CategorySignals:
         watched_video_ids: Optional[Set[int]] = None,
         local_signals: Optional[List[Any]] = None,
         more_like_this_channel_ids: Optional[Set[int]] = None,
-        local_signal_scores: Optional[Dict[str, float]] = None,
     ):
         self.category_id = category_id
 
@@ -70,4 +69,3 @@ class CategorySignals:
                     self.local_signals.append(LocalSignal(**s))
 
         self.more_like_this_channel_ids = more_like_this_channel_ids or set()
-        self.local_signal_scores = local_signal_scores or {}

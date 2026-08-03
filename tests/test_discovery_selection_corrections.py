@@ -242,8 +242,40 @@ def test_corr_sel_08_determinism_and_tied_duplicates():
     assert dup_cand.band == Band.RELATED
 
 
-def test_corr_sel_09_invalid_config_raises_value_error():
-    """CORR-SEL-09 — Configuración inválida lanza ValueError explícito."""
+def test_corr_sel_09_duplicates_and_title_similarity():
+    """CORR-SEL-09 — Duplicados de ID se filtran y títulos similares no desplazan a un candidato diverso."""
+    # A) Mismo youtube_video_id no se incluye 2 veces
+    c1 = make_cand(1, Band.RELATED, score=80.0, yt_vid="SAME_VID")
+    c1_dup = make_cand(1, Band.RELATED, score=75.0, yt_vid="SAME_VID")
+    c2 = make_cand(2, Band.RELATED, score=70.0, yt_vid="OTHER_VID")
+
+    sel_dup, _, _ = select_batch_diverse(
+        [c1, c1_dup, c2], target_total=5, target_related=3, target_adjacent=1, target_exploratory=1
+    )
+    vids = [c.youtube_video_id for c in sel_dup]
+    assert vids.count("SAME_VID") == 1
+
+    # B) Títulos similares no desplazan a candidato diverso
+    t1 = make_cand(10, Band.RELATED, score=85.0, title="Curso Completo de Fotografia Digital")
+    t2 = make_cand(11, Band.RELATED, score=84.0, title="Curso Completo de Fotografia Digital 2026")  # Jaccard > 0.70
+    t3 = make_cand(12, Band.RELATED, score=80.0, title="Direccion de Arte en el Cine Contemporaneo")  # Diverso
+
+    sel_title, _, _ = select_batch_diverse(
+        [t1, t2, t3],
+        target_total=2,
+        target_related=2,
+        target_adjacent=0,
+        target_exploratory=0,
+        duplicate_title_threshold=0.70
+    )
+    title_ids = [c.video_id for c in sel_title]
+    assert 10 in title_ids
+    assert 12 in title_ids, "Candidato diverso t3 (12) no debió ser desplazado por el duplicado t2 (11)"
+    assert 11 not in title_ids
+
+
+def test_selection_config_invalid_raises_value_error():
+    """Configuración inválida de SelectionConfig lanza ValueError explícito."""
     # 1. Suma de cupos supera el total
     with pytest.raises(ValueError, match="sum of targets cannot exceed total"):
         SelectionConfig(total=2, related=5, adjacent=2, exploratory=1)

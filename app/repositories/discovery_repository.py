@@ -31,7 +31,7 @@ class DiscoveryRepository:
         return {row["youtube_video_id"] for row in cursor.fetchall()}
 
     @staticmethod
-    def get_category_signals(db, category_id: int, signal_window_days: int = 90) -> CategorySignals:  # noqa: C901
+    def get_category_signals(db, category_id: int, signal_window_days: int = 90) -> CategorySignals:
         """
         Agrega todas las señales de la categoría (palabras clave, canales semilla,
         videos vistos/abiertos y feedback) dentro de la ventana de días indicada.
@@ -86,7 +86,10 @@ class DiscoveryRepository:
             FROM video_user_state vus
             JOIN videos v ON vus.video_id = v.id
             JOIN channel_categories cc ON v.channel_id = cc.channel_id
-            WHERE cc.category_id = ? AND (vus.opened_at >= ? OR vus.watched = 1 OR vus.updated_at >= ?)
+            WHERE cc.category_id = ? AND (
+                (vus.opened_at IS NOT NULL AND vus.opened_at >= ?) OR
+                (vus.watched = 1 AND vus.updated_at >= ?)
+            )
         """, (category_id, limit_date, limit_date))
         pos_video_titles = []
         pos_channel_ids = set()
@@ -98,7 +101,7 @@ class DiscoveryRepository:
             if row["channel_id"]:
                 pos_channel_ids.add(row["channel_id"])
 
-            if row["watched"] == 1:
+            if row["watched"] == 1 and row["updated_at"] and row["updated_at"] >= limit_date:
                 local_signals.append(LocalSignal(
                     video_id=row["video_id"],
                     channel_id=row["channel_id"],
@@ -393,7 +396,7 @@ class DiscoveryRepository:
         return cursor.lastrowid
 
     @staticmethod
-    def get_active_batch_recommendations(  # noqa: C901
+    def get_active_batch_recommendations(
         db,
         category_id: Optional[int] = None,
         band: Optional[str] = None,

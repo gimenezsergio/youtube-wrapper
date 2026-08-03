@@ -293,9 +293,9 @@ class DiscoveryService:
             # ni expiramos las recomendaciones anteriores. Conservamos el lote previo intacto.
             if len(selected) == 0:
                 logger.warning(
-                f"Categoría {cat_id} no produjo candidatos nuevos válidos. "
-                f"Se conserva el lote anterior. Motivo: {shortfall or 'no_results'}"
-            )
+                    f"Categoría {cat_id} no produjo candidatos nuevos válidos. "
+                    f"Se conserva el lote anterior. Motivo: {shortfall or 'no_results'}"
+                )
                 stats_by_category[cat_id] = {
                     "selected": 0,
                     "shortfall": shortfall or "no_results",

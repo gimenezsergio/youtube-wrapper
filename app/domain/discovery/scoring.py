@@ -127,12 +127,6 @@ def _calculate_local_signals_score(
             if matches_ch or matches_t:
                 scores.append(SIGNAL_WEIGHTS.get(ls.signal_type, 0.0))
 
-    if not scores and signals.local_signal_scores:
-        for st_name, val in [("more_like_this", 15.0), ("watched", 8.0), ("opened", 4.0)]:
-            if st_name in signals.local_signal_scores:
-                scores.append(val)
-                break
-
     return min(15.0, max(scores)) if scores else 0.0
 
 
