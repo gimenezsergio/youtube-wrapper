@@ -78,8 +78,7 @@ def test_discovery_api_endpoints(auth_client, app):
     # B. POST /api/v1/discoveries/{videoId}/feedback (hide_video)
     resp = auth_client.post(f"/api/v1/discoveries/{vid}/feedback", json={
         "categoryId": 1,
-        "action": "hide_video",
-        "channelId": cid
+        "action": "hide_video"
     })
     assert resp.status_code == 200
     assert json.loads(resp.data)["applied"] is True
