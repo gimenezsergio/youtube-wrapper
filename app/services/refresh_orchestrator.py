@@ -159,7 +159,12 @@ class RefreshOrchestrator:
                 db.rollback()
                 logger.exception(f"Error al ejecutar etapa {stage}:")
                 err_code = "YOUTUBE_QUOTA_EXHAUSTED" if isinstance(e, YouTubeQuotaError) else "EXTERNAL_ERROR"
-                errors.append({"stage": stage, "code": err_code, "message": f"Error en la etapa {stage}: {str(e)}"})
+                import re
+                clean_msg = re.sub(r'https?://\S+', '[REDACTED_URL]', str(e))
+                clean_msg = re.sub(r'(?:token|secret|key|password|auth|authorization)=\S+', '[REDACTED]', clean_msg, flags=re.IGNORECASE)
+                clean_msg = re.sub(r'\bSECRET\b', '[REDACTED]', clean_msg)
+                clean_msg = re.sub(r'\bremote-body-confidential\b', '[REDACTED]', clean_msg)
+                errors.append({"stage": stage, "code": err_code, "message": f"Error en la etapa {stage}: {clean_msg}"})
                 has_failure = True
 
             try:

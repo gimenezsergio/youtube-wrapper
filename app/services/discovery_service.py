@@ -153,7 +153,7 @@ class DiscoveryService:
         channel_ids = list({item["youtube_channel_id"] for item in unique_items})
 
         try:
-            videos_details = self.gateway.get_videos_details(access_token, video_ids)
+            videos_details = self.gateway.fetch_videos_details(access_token, video_ids)
             if isinstance(videos_details, HydrationResult):
                 v_details_list = videos_details.items
                 v_complete = videos_details.complete
@@ -193,7 +193,7 @@ class DiscoveryService:
             return None, None, err, False
 
         try:
-            channels_details = self.gateway.get_channels_details(access_token, channel_ids)
+            channels_details = self.gateway.fetch_channels_details(access_token, channel_ids)
             if isinstance(channels_details, HydrationResult):
                 c_details_list = channels_details.items
                 c_complete = channels_details.complete

@@ -417,6 +417,38 @@ def get_refresh_run(run_id):
         db.close()
 
 
+@discovery_bp.route("/refresh-runs/last-successful", methods=["GET"])
+def get_last_successful_refresh_run():
+    from datetime import datetime, timezone
+
+    db = get_db_connection(current_app.config["DATABASE_PATH"])
+    try:
+        run = RefreshRunRepository.get_last_successful_run(db)
+        if not run:
+            return jsonify({"lastSuccessfulRun": None, "isStale": True, "staleHoursThreshold": 24})
+
+        serialized = serialize_refresh_run(run)
+        stale_hours_threshold = 24
+        is_stale = True
+        finished_at_str = run.get("finished_at")
+        if finished_at_str:
+            try:
+                finished_at = datetime.fromisoformat(finished_at_str.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                hours_diff = (now - finished_at).total_seconds() / 3600.0
+                is_stale = hours_diff >= stale_hours_threshold
+            except Exception:
+                pass
+
+        return jsonify({
+            "lastSuccessfulRun": serialized,
+            "isStale": is_stale,
+            "staleHoursThreshold": stale_hours_threshold
+        })
+    finally:
+        db.close()
+
+
 @discovery_bp.route("/categories/<int:category_id>/exploration-topics", methods=["GET"])
 def list_exploration_topics(category_id):
     status = request.args.get("status", default="all")

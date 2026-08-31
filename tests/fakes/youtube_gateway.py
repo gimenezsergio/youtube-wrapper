@@ -112,7 +112,7 @@ class FakeYouTubeGateway:
         return result
 
     def fetch_channels_details(self, access_token, channel_ids):
-        return [self.channels_details[cid] for cid in channel_ids if cid in self.channels_details]
+        return self.get_channels_details(access_token, channel_ids)
 
     def get_channels_details(self, access_token, channel_ids):
         self.channel_hydration_calls += 1
@@ -141,7 +141,7 @@ class FakeYouTubeGateway:
         return self.playlist_items.get(playlist_id, {"items": [], "nextPageToken": None})
 
     def fetch_videos_details(self, access_token, video_ids):
-        return [d for d in self.video_details if d["youtube_video_id"] in video_ids]
+        return self.get_videos_details(access_token, video_ids)
 
     def get_videos_details(self, access_token, video_ids):
         self.video_hydration_calls += 1

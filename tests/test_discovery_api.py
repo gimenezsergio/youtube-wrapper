@@ -122,3 +122,24 @@ def test_discovery_api_endpoints(auth_client, app):
     resp = auth_client.get(f"/api/v1/channels/{cid}/suggest-follow?categoryId=1")
     assert resp.status_code == 200
     assert json.loads(resp.data)["suggestFollow"] is False # Solo 0 interacciones positivas
+
+
+def test_get_last_successful_refresh_run(auth_client, app):
+    """Prueba la obtención de la última corrida de sincronización exitosa/parcial."""
+    with app.app_context():
+        db = get_db_connection(app.config["DATABASE_PATH"])
+        db.execute("""
+            INSERT INTO refresh_runs (id, status, requested_stages_json, current_stage, requested_at, finished_at, counters_json, errors_json)
+            VALUES (10, 'succeeded', '["discovery"]', 'finished', '2026-08-31T10:00:00Z', '2026-08-31T10:05:00Z', '{}', '[]')
+        """)
+        db.commit()
+        db.close()
+
+    resp = auth_client.get("/api/v1/refresh-runs/last-successful")
+    assert resp.status_code == 200
+    data = json.loads(resp.data)
+    assert data["lastSuccessfulRun"] is not None
+    assert data["lastSuccessfulRun"]["id"] == 10
+    assert data["lastSuccessfulRun"]["status"] == "succeeded"
+    assert "isStale" in data
+

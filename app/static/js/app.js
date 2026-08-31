@@ -21,6 +21,9 @@ function initApp() {
     // Configurar menú móvil
     setupMobileMenu();
     
+    // Configurar filtros rápidos de encabezado
+    setupQuickFilters();
+    
     // Configurar enrutador y clicks SPA (Fase 3/5)
     setupSPARouting();
     
@@ -56,6 +59,181 @@ function setupMobileMenu() {
                     menuToggle.setAttribute("aria-expanded", "false");
                 }
             }
+        });
+    }
+}
+
+function setupQuickFilters() {
+    const btnAll = document.getElementById("filter-watched-all");
+    const btnUnwatched = document.getElementById("filter-watched-unwatched");
+
+    if (btnAll) {
+        btnAll.addEventListener("click", () => {
+            setWatchedFilter("all");
+        });
+    }
+
+    if (btnUnwatched) {
+        btnUnwatched.addEventListener("click", () => {
+            setWatchedFilter("false");
+        });
+    }
+}
+
+function setWatchedFilter(val) {
+    syncHeaderQuickFilters(val);
+
+    const selectWatched = document.getElementById("select-filter-watched");
+    if (selectWatched) {
+        selectWatched.value = val;
+        selectWatched.dispatchEvent(new Event("change"));
+    } else {
+        const url = new URL(window.location.href);
+        url.searchParams.set("watched", val);
+        window.history.replaceState({}, "", url.toString());
+    }
+}
+
+function syncHeaderQuickFilters(watchedVal) {
+    const btnAll = document.getElementById("filter-watched-all");
+    const btnUnwatched = document.getElementById("filter-watched-unwatched");
+
+    if (btnAll && btnUnwatched) {
+        if (watchedVal === "false") {
+            btnAll.classList.remove("active");
+            btnUnwatched.classList.add("active");
+        } else {
+            btnAll.classList.add("active");
+            btnUnwatched.classList.remove("active");
+        }
+    }
+}
+
+let currentSyncStatus = {
+    isStale: false,
+    lastSuccessfulRun: null,
+    formattedTime: ""
+};
+
+async function checkAndRenderSyncStatus() {
+    const indicatorEl = document.getElementById("sync-status-indicator");
+    const dotEl = document.getElementById("sync-status-dot");
+    const textEl = document.getElementById("sync-status-text");
+    const btnRefreshEl = document.getElementById("btn-refresh");
+
+    if (!textEl) return;
+
+    try {
+        const resp = await fetch("/api/v1/refresh-runs/last-successful");
+        if (resp.ok) {
+            const data = await resp.json();
+            const run = data.lastSuccessfulRun;
+            const isStale = data.isStale;
+            
+            let formattedTime = "";
+            if (run && run.finishedAt) {
+                formattedTime = formatRelativeTime(run.finishedAt);
+            }
+
+            currentSyncStatus = {
+                isStale: isStale,
+                lastSuccessfulRun: run,
+                formattedTime: formattedTime
+            };
+
+            if (run && run.finishedAt) {
+                if (isStale) {
+                    textEl.textContent = `Última sinc: ${formattedTime} ⚠️`;
+                    indicatorEl?.classList.add("is-stale");
+                    if (dotEl) {
+                        dotEl.className = "sync-status-dot warning";
+                    }
+                    if (btnRefreshEl) {
+                        btnRefreshEl.classList.add("stale-highlight");
+                    }
+                } else {
+                    textEl.textContent = `Sincronizado: ${formattedTime}`;
+                    indicatorEl?.classList.remove("is-stale");
+                    if (dotEl) {
+                        dotEl.className = "sync-status-dot green";
+                    }
+                    if (btnRefreshEl) {
+                        btnRefreshEl.classList.remove("stale-highlight");
+                    }
+                }
+            } else {
+                textEl.textContent = "Sin sincronizar ⚠️";
+                indicatorEl?.classList.add("is-stale");
+                if (dotEl) {
+                    dotEl.className = "sync-status-dot warning";
+                }
+                if (btnRefreshEl) {
+                    btnRefreshEl.classList.add("stale-highlight");
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error al obtener estado de sincronización:", err);
+    }
+}
+
+function formatRelativeTime(isoString) {
+    if (!isoString) return "";
+    try {
+        const date = new Date(isoString.replace("Z", "+00:00"));
+        const now = new Date();
+        const diffMs = now - date;
+        if (diffMs < 0) return "hace unos segundos";
+
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMins < 1) {
+            return "hace unos segundos";
+        } else if (diffMins < 60) {
+            return `hace ${diffMins} ${diffMins === 1 ? 'minuto' : 'minutos'}`;
+        } else if (diffHours < 24) {
+            return `hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
+        } else if (diffDays === 1) {
+            return "hace 1 día";
+        } else {
+            return `hace ${diffDays} días`;
+        }
+    } catch (e) {
+        return "";
+    }
+}
+
+function renderStaleFeedBanner(viewContainer) {
+    document.getElementById("stale-feed-banner")?.remove();
+
+    if (currentSyncStatus.isStale) {
+        const bannerTime = currentSyncStatus.formattedTime ? currentSyncStatus.formattedTime : "varios días";
+        const bannerEl = document.createElement("div");
+        bannerEl.id = "stale-feed-banner";
+        bannerEl.className = "stale-feed-banner";
+        bannerEl.innerHTML = `
+            <div class="stale-banner-content">
+                <span class="stale-banner-icon">⚠️</span>
+                <span class="stale-banner-text">Tu biblioteca no se actualiza desde ${escapeHtml(bannerTime)}. Es posible que haya nuevos videos publicados en YouTube.</span>
+            </div>
+            <button id="btn-banner-refresh" class="btn-primary btn-sm">Actualizar contenido ahora 🔄</button>
+        `;
+        
+        const categoryView = viewContainer.querySelector(".category-view");
+        const categoryToolbar = viewContainer.querySelector(".category-toolbar");
+        if (categoryView && categoryToolbar) {
+            categoryView.insertBefore(bannerEl, categoryToolbar);
+        } else if (categoryView) {
+            categoryView.prepend(bannerEl);
+        } else {
+            viewContainer.prepend(bannerEl);
+        }
+
+        bannerEl.querySelector("#btn-banner-refresh")?.addEventListener("click", () => {
+            triggerSubscriptionSync();
         });
     }
 }
@@ -96,6 +274,9 @@ async function checkAuthStatus() {
             if (data.authenticated) {
                 csrfToken = data.csrfToken;
                 showAppShell(data.email);
+                
+                // Actualizar estado de sincronización en el encabezado
+                await checkAndRenderSyncStatus();
                 
                 // Cargar categorías primero para tenerlas cacheadas en la UI
                 await loadCategories();
@@ -833,7 +1014,12 @@ async function renderCategoryFeedView(categoryId) {
         updateFiltersAndReload();
     });
 
-    selectWatched.addEventListener("change", updateFiltersAndReload);
+    syncHeaderQuickFilters(initialWatched);
+
+    selectWatched.addEventListener("change", () => {
+        syncHeaderQuickFilters(selectWatched.value);
+        updateFiltersAndReload();
+    });
     selectOrigin.addEventListener("change", updateFiltersAndReload);
 
     searchInput.addEventListener("input", () => {
@@ -848,6 +1034,9 @@ async function renderCategoryFeedView(categoryId) {
             loadCategoryVideos(categoryId, false, videosNextCursor);
         }
     });
+
+    // Renderizar banner de advertencia si la BD está desactualizada
+    renderStaleFeedBanner(viewContainer);
 
     // Cargar videos iniciales
     loadCategoryVideos(categoryId, true);
@@ -1555,6 +1744,7 @@ function triggerSubscriptionSync() {
                         status === "succeeded" ? "Actualización Exitosa" : "Actualización Finalizada",
                         `${msg}\n\nDetalles:\n- Suscripciones creadas: ${counters.subscriptions?.created || 0}\n- Videos importados: ${counters.followed_videos?.created || 0}\n- Búsquedas de descubrimiento: ${counters.discovery?.searches_executed || 0}`
                     );
+                    await checkAndRenderSyncStatus();
                     handleCurrentRoute();
                 }
             } catch (err) {

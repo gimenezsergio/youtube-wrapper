@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=YouTube Curator
+Comment=Aplicación personal para organizar y descubrir contenido de YouTube sin algoritmos
+Exec=/home/sergio/Documents/src/youtube-wrapper/scripts/start.sh
+Icon=/home/sergio/Documents/src/youtube-wrapper/app/static/icons/icon-512.png
+Terminal=false
+Categories=Utility;Network;Video;
+Keywords=youtube;curator;video;feed;
+StartupNotify=true

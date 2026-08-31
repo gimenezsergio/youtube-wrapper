@@ -161,7 +161,7 @@ def test_disc_07_reasons():
         "channel_title": "Canal A",
         "description": "Descripción completa",
         "thumbnail_url": "thumb",
-        "published_at": "2026-07-30T10:00:00Z",
+        "published_at": datetime.now(timezone.utc).isoformat(),
         "duration_seconds": 600
     }
     candidate = score_and_classify_candidate(video, signals)
@@ -206,7 +206,7 @@ def test_disc_18_classification():
     meta = {
         "description": "Descripción completa",
         "thumbnail_url": "thumb",
-        "published_at": "2026-07-30T10:00:00Z",
+        "published_at": datetime.now(timezone.utc).isoformat(),
         "duration_seconds": 600
     }
 

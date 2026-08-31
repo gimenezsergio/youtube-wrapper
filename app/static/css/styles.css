@@ -1784,6 +1784,108 @@ body {
     }
 }
 
+/* Indicador de Estado de Sincronización y Banner de Advertencia */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.sync-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.sync-status-indicator.is-stale {
+    border-color: rgba(245, 158, 11, 0.4);
+    background-color: rgba(245, 158, 11, 0.08);
+    color: #d97706;
+}
+
+.sync-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    transition: all var(--transition-fast);
+}
+
+.sync-status-dot.warning {
+    background-color: var(--warning);
+    box-shadow: 0 0 8px var(--warning);
+    animation: pulse-warning 2s infinite ease-in-out;
+}
+
+@keyframes pulse-warning {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.25); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.btn-refresh.stale-highlight {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+    animation: pulse-btn 2.5s infinite;
+}
+
+@keyframes pulse-btn {
+    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+/* Banner de advertencia en Feed cuando la BD está desactualizada */
+.stale-feed-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.08));
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-md);
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.stale-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.stale-banner-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.stale-banner-text {
+    line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+    .stale-feed-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .sync-status-indicator {
+        display: none;
+    }
+}
+
 
 
 
