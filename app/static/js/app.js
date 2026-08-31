@@ -766,11 +766,12 @@ async function renderDiscoveriesView() {
             };
             const badgeStyle = badgeColors[context.band] || "";
 
+            const videoUrl = `https://www.youtube.com/watch?v=${video.youtubeVideoId}`;
             const card = document.createElement("article");
             card.className = "video-card";
             card.id = `candidate-card-${video.id}`;
             card.innerHTML = `
-                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;">
+                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;" title="Clic para abrir, doble clic para copiar enlace">
                     <img class="video-thumbnail" src="${escapeHtml(video.thumbnailUrl || '/static/img/placeholder.jpg')}" alt="">
                     <span class="video-duration">${durationMin} min</span>
                 </div>
@@ -779,7 +780,9 @@ async function renderDiscoveriesView() {
                         ${escapeHtml(context.label)}
                     </span>
                     <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: #fff; height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
-                        ${escapeHtml(video.title)}
+                        <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" title="Clic para abrir, doble clic para copiar enlace">
+                            ${escapeHtml(video.title)}
+                        </a>
                     </h4>
                     <p style="margin: 0; font-size: 0.85rem; color: #94a3b8;">${escapeHtml(video.channel.title)}</p>
                     
@@ -794,15 +797,55 @@ async function renderDiscoveriesView() {
                         <button class="btn-primary btn-sm btn-more" style="grid-column: 1 / 3;" data-vid="${video.id}">👍 Me interesa</button>
                         <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}">👎 No me interesa</button>
                         <button class="btn-secondary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">➕ Seguir canal</button>
+                        <button class="btn-secondary btn-sm btn-copy-url-candidate" style="grid-column: 1 / 3;" data-vid="${video.id}">📋 Copiar enlace del video</button>
                         <button class="btn-secondary btn-sm btn-hide" style="grid-column: 1 / 3;" data-vid="${video.id}">👁️ Ocultar video</button>
                         <button class="btn-secondary btn-sm btn-block-channel" style="grid-column: 1 / 3; color: #ef4444; border-color: rgba(239,68,68,0.2);" data-cid="${video.channel.id}" data-cname="${escapeHtml(video.channel.title)}">🚫 Bloquear canal</button>
                     </div>
                 </div>
             `;
             
-            // Click to open video player / link
-            card.querySelector(".video-thumbnail-container").addEventListener("click", () => {
-                openVideoPlayer(video.id, video.youtubeVideoId, video.title);
+            let candTimeout = null;
+            let candPreventSingle = false;
+
+            const handleCandSingle = (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                e.preventDefault();
+                candTimeout = setTimeout(() => {
+                    if (!candPreventSingle) {
+                        openVideoAndRegister(video.id, video.youtubeVideoId, card);
+                    }
+                    candPreventSingle = false;
+                }, 220);
+            };
+
+            const handleCandDbl = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                clearTimeout(candTimeout);
+                candPreventSingle = true;
+                copyVideoUrlToClipboard(video.youtubeVideoId);
+            };
+
+            const thumbEl = card.querySelector(".video-thumbnail-container");
+            const titleEl = card.querySelector(".video-card-title-link");
+
+            if (thumbEl) {
+                thumbEl.addEventListener("click", handleCandSingle);
+                thumbEl.addEventListener("dblclick", handleCandDbl);
+            }
+            if (titleEl) {
+                titleEl.addEventListener("click", handleCandSingle);
+                titleEl.addEventListener("dblclick", handleCandDbl);
+            }
+
+            card.addEventListener("dblclick", (e) => {
+                if (e.target.closest("button")) return;
+                handleCandDbl(e);
+            });
+
+            card.querySelector(".btn-copy-url-candidate").addEventListener("click", (e) => {
+                e.stopPropagation();
+                copyVideoUrlToClipboard(video.youtubeVideoId);
             });
 
             // Action Listeners
@@ -1348,6 +1391,7 @@ function createVideoCard(video) {
     card.className = `video-card ${video.watched ? "watched-video" : ""}`;
     card.setAttribute("data-video-id", video.id);
 
+    const videoUrl = `https://www.youtube.com/watch?v=${video.youtubeVideoId}`;
     const formattedDuration = formatDuration(video.durationSeconds);
     const durationTag = formattedDuration ? `<span class="video-duration-tag">${formattedDuration}</span>` : "";
 
@@ -1360,14 +1404,14 @@ function createVideoCard(video) {
     }
 
     card.innerHTML = `
-        <div class="video-thumb-wrapper">
-            <img src="${video.thumbnailUrl || ''}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
+        <div class="video-thumb-wrapper" title="Clic para ver video, doble clic para copiar enlace">
+            <img src="${escapeHtml(video.thumbnailUrl || '')}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
             ${durationTag}
         </div>
         <div class="video-info-section">
-            <img src="${video.channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
+            <img src="${escapeHtml(video.channel.thumbnailUrl || '')}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
             <div class="video-details-text">
-                <a class="video-card-title-link">${escapeHtml(video.title)}</a>
+                <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para ver video, doble clic para copiar enlace">${escapeHtml(video.title)}</a>
                 <div class="video-card-meta-row">
                     <span class="video-channel-name-lbl">${escapeHtml(video.channel.title)}</span>
                     <span class="video-date-lbl">${cleanDate}</span>
@@ -1375,6 +1419,9 @@ function createVideoCard(video) {
                 <div class="video-badges-row">${badgesHtml}</div>
             </div>
             <div class="video-actions-sidebar">
+                <button class="btn-copy-url" title="Copiar dirección del video (o doble clic en la tarjeta)">
+                    📋
+                </button>
                 <button class="btn-toggle-watch ${video.watched ? "is-watched" : ""}" title="${video.watched ? "Marcar como no visto" : "Marcar como visto"}">
                     ${video.watched ? "👁️" : "✓"}
                 </button>
@@ -1382,32 +1429,48 @@ function createVideoCard(video) {
         </div>
     `;
 
-    // Click en la miniatura o en el título para abrir el video en YouTube y registrar
-    const openAction = async (e) => {
+    let clickTimeout = null;
+    let preventSingleClick = false;
+
+    const handleSingleClick = (e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) return;
         e.preventDefault();
-        try {
-            const resp = await apiFetch(`/api/v1/videos/${video.id}/open`, { method: "POST" });
-            if (resp.ok) {
-                const data = await resp.json();
-                
-                // Marcar como visto localmente al instante
-                card.classList.add("watched-video");
-                const btnWatch = card.querySelector(".btn-toggle-watch");
-                if (btnWatch) {
-                    btnWatch.classList.add("is-watched");
-                    btnWatch.textContent = "👁️";
-                    btnWatch.title = "Marcar como no visto";
-                }
-                
-                window.open(data.url, "_blank");
+        clickTimeout = setTimeout(() => {
+            if (!preventSingleClick) {
+                openVideoAndRegister(video.id, video.youtubeVideoId, card);
             }
-        } catch (error) {
-            console.error("Error al abrir video:", error);
-        }
+            preventSingleClick = false;
+        }, 220);
     };
 
-    card.querySelector(".video-thumb-wrapper").addEventListener("click", openAction);
-    card.querySelector(".video-card-title-link").addEventListener("click", openAction);
+    const handleDoubleClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(clickTimeout);
+        preventSingleClick = true;
+        copyVideoUrlToClipboard(video.youtubeVideoId);
+    };
+
+    const thumbEl = card.querySelector(".video-thumb-wrapper");
+    const titleEl = card.querySelector(".video-card-title-link");
+
+    thumbEl.addEventListener("click", handleSingleClick);
+    thumbEl.addEventListener("dblclick", handleDoubleClick);
+
+    titleEl.addEventListener("click", handleSingleClick);
+    titleEl.addEventListener("dblclick", handleDoubleClick);
+
+    // Doble clic en cualquier parte de la tarjeta para copiar enlace
+    card.addEventListener("dblclick", (e) => {
+        if (e.target.closest("button")) return;
+        handleDoubleClick(e);
+    });
+
+    // Botón directo de copiar URL
+    card.querySelector(".btn-copy-url").addEventListener("click", (e) => {
+        e.stopPropagation();
+        copyVideoUrlToClipboard(video.youtubeVideoId);
+    });
 
     // Botón de visto / no visto manual
     card.querySelector(".btn-toggle-watch").addEventListener("click", async (e) => {
@@ -2286,6 +2349,83 @@ function setupRefreshButton() {
         btnRefresh.addEventListener("click", () => {
             triggerSubscriptionSync();
         });
+    }
+}
+
+function showNotification(message, duration = 3000) {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toast-container";
+        container.className = "toast-container";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = "toast-notification";
+    toast.innerHTML = `<span class="toast-message">${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("toast-show");
+    });
+
+    setTimeout(() => {
+        toast.classList.remove("toast-show");
+        toast.classList.add("toast-hide");
+        toast.addEventListener("transitionend", () => {
+            toast.remove();
+        });
+    }, duration);
+}
+
+async function copyVideoUrlToClipboard(youtubeVideoId) {
+    const url = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(url);
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = url;
+            textArea.style.position = "fixed";
+            textArea.style.opacity = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textArea);
+        }
+        showNotification(`📋 Enlace copiado al portapapeles: ${url}`);
+        return true;
+    } catch (err) {
+        console.error("Error al copiar enlace:", err);
+        showNotification("No se pudo copiar el enlace al portapapeles.");
+        return false;
+    }
+}
+
+async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null) {
+    const defaultUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    try {
+        const resp = await apiFetch(`/api/v1/videos/${videoId}/open`, { method: "POST" });
+        if (resp.ok) {
+            const data = await resp.json();
+            if (cardElement) {
+                cardElement.classList.add("watched-video");
+                const btnWatch = cardElement.querySelector(".btn-toggle-watch");
+                if (btnWatch) {
+                    btnWatch.classList.add("is-watched");
+                    btnWatch.textContent = "👁️";
+                    btnWatch.title = "Marcar como no visto";
+                }
+            }
+            window.open(data.url || defaultUrl, "_blank");
+        } else {
+            window.open(defaultUrl, "_blank");
+        }
+    } catch (error) {
+        console.error("Error al abrir video:", error);
+        window.open(defaultUrl, "_blank");
     }
 }
 
