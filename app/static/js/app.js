@@ -477,9 +477,9 @@ function renderSettingsView() {
             
             <div class="channels-grid" style="display: flex; flex-direction: column; gap: 20px;">
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Conexión Google OAuth 2.0</h3>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Conexión Google OAuth 2.0</h3>
                     <p class="form-instruction" style="margin-bottom: 15px;">Sesión activa con el correo de propietario:</p>
-                    <div style="font-weight: bold; margin-bottom: 20px; color: #a78bfa;">${escapeHtml(email)}</div>
+                    <div style="font-weight: bold; margin-bottom: 20px; color: var(--accent);">${escapeHtml(email)}</div>
                     
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
@@ -489,27 +489,27 @@ function renderSettingsView() {
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Navegador para Ver Videos</h3>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Navegador para Ver Videos</h3>
                     <p class="form-instruction" style="margin-bottom: 15px;">Elegí en qué navegador abrir los videos al hacer clic en las tarjetas:</p>
                     
                     <div style="display: flex; flex-direction: column; gap: 10px;">
                         <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="brave" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: #fff;">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
+                            <span style="font-weight: 600; color: var(--text-primary);">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
                         </label>
                         <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="chrome" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: #fff;">🌐 Pestaña de Chrome (Navegador actual)</span>
+                            <span style="font-weight: 600; color: var(--text-primary);">🌐 Pestaña de Chrome (Navegador actual)</span>
                         </label>
                         <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="system" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: #fff;">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
+                            <span style="font-weight: 600; color: var(--text-primary);">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
                         </label>
                     </div>
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Diagnóstico del Sistema</h3>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Diagnóstico del Sistema</h3>
                     <p class="form-instruction">Estado actual de la base de datos y worker de sincronización.</p>
                     
                     <ul style="list-style: none; padding: 0; margin: 15px 0 0 0; display: flex; flex-direction: column; gap: 10px;">
@@ -536,9 +536,9 @@ function renderSettingsView() {
     exclusionsContainer.className = "channel-card";
     exclusionsContainer.style.cssText = "width: 100%; box-sizing: border-box; padding: 20px; margin-top: 20px;";
     exclusionsContainer.innerHTML = `
-        <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
+        <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
         <p class="form-instruction">Gestiona los canales bloqueados y videos ocultados de tu feed.</p>
-        <div id="settings-exclusions-list" style="margin-top: 15px; color: #cbd5e1;">Cargando exclusiones...</div>
+        <div id="settings-exclusions-list" style="margin-top: 15px; color: var(--text-secondary);">Cargando exclusiones...</div>
     `;
     viewContainer.querySelector(".channels-grid").appendChild(exclusionsContainer);
 
@@ -553,7 +553,7 @@ function renderSettingsView() {
             
             let html = "";
             if (data.blockedChannels.length > 0) {
-                html += `<h4 style="color: #fff; margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                html += `<h4 style="color: var(--text-primary); margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.blockedChannels.forEach(c => {
                     html += `
                         <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
@@ -566,7 +566,7 @@ function renderSettingsView() {
             }
             
             if (data.hiddenVideos.length > 0) {
-                html += `<h4 style="color: #fff; margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                html += `<h4 style="color: var(--text-primary); margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.hiddenVideos.forEach(v => {
                     html += `
                         <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
@@ -661,8 +661,8 @@ async function renderDiscoveriesView() {
                 </div>
                 <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid rgba(255,255,255,0.05); max-width: 600px; margin: 40px auto;">
                     <div style="font-size: 2.5rem; margin-bottom: 15px;">✨</div>
-                    <h3 style="color: #fff; margin-top: 0;">Configura una Categoría</h3>
-                    <p style="color: #cbd5e1; line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
+                    <h3 style="color: var(--text-primary); margin-top: 0;">Configura una Categoría</h3>
+                    <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
                 </div>
             </div>
         `;
@@ -687,14 +687,14 @@ async function renderDiscoveriesView() {
             <div class="category-toolbar" style="margin-bottom: 25px;">
                 <div class="toolbar-filters" style="display: flex; gap: 15px; width: 100%;">
                     <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Categoría</label>
+                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Categoría</label>
                         <select id="discovery-cat-select" class="select-filter" style="width: 200px;">
                             ${catOptionsHtml}
                         </select>
                     </div>
                     
                     <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Banda</label>
+                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Banda</label>
                         <select id="discovery-band-select" class="select-filter" style="width: 180px;">
                             <option value="all" ${band === "all" ? "selected" : ""}>Todas las bandas</option>
                             <option value="related" ${band === "related" ? "selected" : ""}>Relacionado</option>
@@ -761,10 +761,10 @@ async function renderDiscoveriesView() {
             summaryBox.innerHTML = `
                 <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #94a3b8;">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
+                        <span style="color: var(--text-muted);">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
                         <span style="background: rgba(167, 139, 250, 0.15); color: #c084fc; padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
                     </div>
-                    <div style="margin-top: 10px; display: flex; gap: 20px; color: #cbd5e1;">
+                    <div style="margin-top: 10px; display: flex; gap: 20px; color: var(--text-secondary);">
                         <span>Relacionados: <strong>${matchingBatch.selectedByBand.related} / ${matchingBatch.targetByBand.related}</strong></span>
                         <span>Cercanos: <strong>${matchingBatch.selectedByBand.adjacent} / ${matchingBatch.targetByBand.adjacent}</strong></span>
                         <span>Explorar: <strong>${matchingBatch.selectedByBand.exploratory} / ${matchingBatch.targetByBand.exploratory}</strong></span>
@@ -774,7 +774,7 @@ async function renderDiscoveriesView() {
             `;
         } else {
             summaryBox.innerHTML = `
-                <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: #94a3b8;">
+                <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
                     No hay ningún lote de descubrimiento generado recientemente. Presiona <strong>Actualizar</strong> en la barra superior para buscar videos.
                 </div>
             `;
@@ -814,16 +814,19 @@ async function renderDiscoveriesView() {
                     <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; align-self: flex-start; ${badgeStyle}">
                         ${escapeHtml(context.label)}
                     </span>
-                    <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: #fff; height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                    <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: var(--text-primary); height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
                         <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" title="Clic para abrir, doble clic para copiar enlace">
                             ${escapeHtml(video.title)}
                         </a>
                     </h4>
-                    <p style="margin: 0; font-size: 0.85rem; color: #94a3b8;">${escapeHtml(video.channel.title)}</p>
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(video.channel.title)}</p>
                     
                     <div style="font-size: 0.8rem; background: rgba(255,255,255,0.02); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.03);">
-                        <div style="color: #a78bfa; font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
-                        <ul style="margin: 0; padding-left: 15px; color: #cbd5e1;">
+                        <div style="color: var(--accent); font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
+                        <ul style="margin: 0; padding-left: 15px; color: var(--text-secondary);">
+                            ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
+                        </ul>
+                    </div>
                             ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
                         </ul>
                     </div>
@@ -1752,14 +1755,14 @@ function triggerSubscriptionSync() {
     }
     
     syncOverlay.innerHTML = `
-        <div class="sync-card" style="max-width: 500px; padding: 25px; background: #1e293b; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: center;">
+        <div class="sync-card" style="max-width: 500px; padding: 25px; background: var(--bg-surface); border-radius: 12px; border: 1px solid var(--border-color); color: var(--text-primary); text-align: center;">
             <div class="spinner" style="margin: 0 auto 15px auto;"></div>
-            <h3 class="sync-title" id="sync-overlay-title" style="margin-top: 0; color: #fff;">Iniciando actualización...</h3>
-            <p class="sync-subtitle" id="sync-overlay-subtitle" style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 15px;">Creando tarea de sincronización en segundo plano.</p>
+            <h3 class="sync-title" id="sync-overlay-title" style="margin-top: 0; color: var(--text-primary);">Iniciando actualización...</h3>
+            <p class="sync-subtitle" id="sync-overlay-subtitle" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 15px;">Creando tarea de sincronización en segundo plano.</p>
             <div id="sync-overlay-progress-container" style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; width: 100%; overflow: hidden; display: none; margin-bottom: 15px;">
-                <div id="sync-overlay-progress-bar" style="background: #a78bfa; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                <div id="sync-overlay-progress-bar" style="background: var(--accent); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
             </div>
-            <div id="sync-overlay-details" style="font-size: 0.85rem; color: #cbd5e1; text-align: left; width: 100%; display: flex; flex-direction: column; gap: 6px;"></div>
+            <div id="sync-overlay-details" style="font-size: 0.85rem; color: var(--text-secondary); text-align: left; width: 100%; display: flex; flex-direction: column; gap: 6px;"></div>
         </div>
     `;
     syncOverlay.classList.remove("hidden");
