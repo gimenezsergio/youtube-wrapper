@@ -401,7 +401,10 @@ def list_videos():
 
 @videos_bp.route("/videos/<int:video_id>/open", methods=["POST"])
 def open_video(video_id):
-    """Registra la apertura de un video y retorna su URL de YouTube."""
+    """Registra la apertura de un video y retorna su URL de YouTube, lanzándolo opcionalmente en Brave o navegador del sistema."""
+    import shutil
+    import subprocess
+
     db = get_db()
 
     # Comprobar que el video existe
@@ -431,10 +434,40 @@ def open_video(video_id):
         return jsonify({"error": {"code": "DATABASE_ERROR", "message": f"Error de persistencia: {e}"}}), 500
 
     youtube_url = f"https://www.youtube.com/watch?v={yt_video_id}"
+
+    # Obtener preferencia de navegador (query param o json body)
+    req_json = request.get_json(silent=True) or {}
+    browser_param = request.args.get("browser") or req_json.get("browser") or "chrome"
+    opened_external = False
+    browser_used = None
+
+    if browser_param in ("brave", "system"):
+        if browser_param == "brave":
+            brave_path = shutil.which("brave-browser") or shutil.which("brave")
+            if brave_path:
+                try:
+                    subprocess.Popen([brave_path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    opened_external = True
+                    browser_used = "Brave Browser"
+                except Exception as ex:
+                    current_app.logger.error(f"Error al lanzar Brave: {ex}")
+
+        if not opened_external:
+            xdg_path = shutil.which("xdg-open")
+            if xdg_path:
+                try:
+                    subprocess.Popen([xdg_path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    opened_external = True
+                    browser_used = "Navegador del sistema"
+                except Exception as ex:
+                    current_app.logger.error(f"Error al lanzar xdg-open: {ex}")
+
     return jsonify({
         "url": youtube_url,
         "watched": True,
-        "openedAt": now_iso
+        "openedAt": now_iso,
+        "openedInExternalBrowser": opened_external,
+        "browserUsed": browser_used
     }), 200
 
 

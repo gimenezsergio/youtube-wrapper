@@ -489,6 +489,26 @@ function renderSettingsView() {
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
+                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Navegador para Ver Videos</h3>
+                    <p class="form-instruction" style="margin-bottom: 15px;">Elegí en qué navegador abrir los videos al hacer clic en las tarjetas:</p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="brave" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: #fff;">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
+                        </label>
+                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="chrome" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: #fff;">🌐 Pestaña de Chrome (Navegador actual)</span>
+                        </label>
+                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="system" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: #fff;">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
                     <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Diagnóstico del Sistema</h3>
                     <p class="form-instruction">Estado actual de la base de datos y worker de sincronización.</p>
                     
@@ -589,6 +609,20 @@ function renderSettingsView() {
                 });
             });
         });
+
+    // Configurar radios de navegador preferido
+    const savedBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
+    const radioSelected = viewContainer.querySelector(`input[name="pref-browser"][value="${savedBrowser}"]`);
+    if (radioSelected) radioSelected.checked = true;
+
+    viewContainer.querySelectorAll('input[name="pref-browser"]').forEach(radio => {
+        radio.addEventListener("change", (e) => {
+            const val = e.target.value;
+            localStorage.setItem("yt_curator_preferred_browser", val);
+            const labelMap = { brave: "Brave Browser", chrome: "Chrome (Pestaña actual)", system: "Navegador del sistema" };
+            showNotification(`Preferencia guardada: abrir videos en ${labelMap[val] || val}`);
+        });
+    });
 
     document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
         triggerSubscriptionSync();
@@ -2462,8 +2496,10 @@ async function copyVideoUrlToClipboard(youtubeVideoId) {
 
 async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null) {
     const defaultUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    const preferredBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
+
     try {
-        const resp = await apiFetch(`/api/v1/videos/${videoId}/open`, { method: "POST" });
+        const resp = await apiFetch(`/api/v1/videos/${videoId}/open?browser=${preferredBrowser}`, { method: "POST" });
         if (resp.ok) {
             const data = await resp.json();
             if (cardElement) {
@@ -2475,7 +2511,12 @@ async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null)
                     btnWatch.title = "Marcar como no visto";
                 }
             }
-            window.open(data.url || defaultUrl, "_blank");
+
+            if (data.openedInExternalBrowser) {
+                showNotification(`🚀 Video abierto en ${data.browserUsed || "Brave Browser"}`);
+            } else {
+                window.open(data.url || defaultUrl, "_blank");
+            }
         } else {
             window.open(defaultUrl, "_blank");
         }
