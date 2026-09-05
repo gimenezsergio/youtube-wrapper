@@ -481,8 +481,9 @@ function renderSettingsView() {
                     <p class="form-instruction" style="margin-bottom: 15px;">Sesión activa con el correo de propietario:</p>
                     <div style="font-weight: bold; margin-bottom: 20px; color: #a78bfa;">${escapeHtml(email)}</div>
                     
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
+                        <a href="/api/v1/auth/login" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
                         <button id="btn-settings-logout" class="btn-secondary" style="border-color: #ef4444; color: #ef4444;">Cerrar Sesión</button>
                     </div>
                 </div>
@@ -1794,6 +1795,20 @@ function triggerSubscriptionSync() {
                     clearInterval(intervalId);
                     syncOverlay.classList.add("hidden");
                     
+                    const hasAuthError = Object.values(errors).some(errStr => 
+                        errStr.includes("invalid_grant") || 
+                        errStr.includes("expired or revoked") || 
+                        errStr.includes("caducada") || 
+                        errStr.includes("revocado")
+                    );
+
+                    if (hasAuthError) {
+                        showAuthErrorDialog();
+                        await checkAndRenderSyncStatus();
+                        handleCurrentRoute();
+                        return;
+                    }
+
                     let msg = "";
                     if (status === "succeeded") {
                         msg = "¡Sincronización finalizada con éxito!";
@@ -2350,6 +2365,47 @@ function setupRefreshButton() {
             triggerSubscriptionSync();
         });
     }
+}
+
+function showAuthErrorDialog() {
+    const dialogId = "custom-auth-error-dialog";
+    document.getElementById(dialogId)?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = dialogId;
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title" style="color: #f87171;">⚠️ Conexión con Google Expirada</h3>
+                <button class="btn-close-modal" id="btn-close-auth-err">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 15px 0; font-size: 0.95rem;">
+                    Tu sesión o token de autorización de Google/YouTube ha expirado o fue revocado por Google (<code>invalid_grant</code>).
+                </p>
+                <p style="color: #94a3b8; line-height: 1.5; margin: 0 0 20px 0; font-size: 0.85rem;">
+                    Para volver a sincronizar tus suscripciones y descargar nuevos videos, hacé clic en el botón de abajo para reconectar tu cuenta de Google.
+                </p>
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn-secondary" id="btn-auth-err-cancel">Cancelar</button>
+                    <a href="/api/v1/auth/login" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                        🔑 Reconectar con Google
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        overlay.classList.add("hidden");
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    document.getElementById("btn-close-auth-err").addEventListener("click", close);
+    document.getElementById("btn-auth-err-cancel").addEventListener("click", close);
 }
 
 function showNotification(message, duration = 3000) {
