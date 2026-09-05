@@ -1,39 +1,39 @@
 /* YouTube Curator — Premium CSS Design System */
 
 :root {
-    /* Paleta de colores HSL - Estilo Slate Dark Mode Premium con alto contraste (WCAG AAA) */
-    --bg-main: #0f172a;          /* Slate 900 - Fondo principal oscuro */
-    --bg-surface: #1e293b;       /* Slate 800 - Fondo de tarjetas y paneles */
-    --bg-surface-glass: rgba(30, 41, 59, 0.90);
-    --border-color: rgba(255, 255, 255, 0.10); /* Borde translúcido claro */
-    --border-color-hover: rgba(255, 255, 255, 0.22);
+    /* Paleta de colores HSL - Estilo Apple Light Mode Premium con alto contraste (WCAG AAA) */
+    --bg-main: #f8fafc;          /* Slate 50 - Fondo principal claro */
+    --bg-surface: #ffffff;       /* Blanco puro - Fondo de tarjetas y paneles */
+    --bg-surface-glass: rgba(255, 255, 255, 0.88);
+    --border-color: rgba(0, 0, 0, 0.08); /* Borde translúcido suave */
+    --border-color-hover: rgba(0, 0, 0, 0.18);
     
     /* Textos con alto contraste (cumplimiento WCAG AAA > 7:1) */
-    --text-primary: #f8fafc;     /* Slate 50 - Blanco tiza brillante */
-    --text-secondary: #cbd5e1;   /* Slate 300 - Gris claro muy legible */
-    --text-muted: #94a3b8;       /* Slate 400 - Gris de apoyo */
+    --text-primary: #0f172a;     /* Slate 900 - Carbón oscuro muy legible */
+    --text-secondary: #334155;   /* Slate 700 - Gris oscuro */
+    --text-muted: #64748b;       /* Slate 500 - Gris medio de apoyo */
     
     /* Accent y branding */
-    --accent: #a78bfa;           /* Violeta pastel vibrante */
-    --accent-hover: #c084fc;
-    --accent-glow: rgba(167, 139, 250, 0.25);
-    --youtube-red: #f87171;      /* Rojo vibrante visible en oscuro */
-    --success: #34d399;          /* Verde esmeralda */
-    --warning: #fbbf24;          /* Ambar visible */
+    --accent: #2563eb;           /* Azul real brillante */
+    --accent-hover: #1d4ed8;
+    --accent-glow: rgba(37, 99, 235, 0.12);
+    --youtube-red: #dc2626;      /* Rojo vibrante */
+    --success: #059669;          /* Verde esmeralda */
+    --warning: #d97706;          /* Ámbar visible */
     
-    /* Fuentes de sistema */
-    --font-heading: 'Outfit', -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
-    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    /* Fuentes de sistema Apple */
+    --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
     
     /* Shadows y bordes */
-    --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 14px 0 rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 12px 32px 0 rgba(0, 0, 0, 0.6);
-    --shadow-glow: 0 0 20px 0 var(--accent-glow);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 12px 30px 0 rgba(0, 0, 0, 0.10);
+    --shadow-glow: 0 0 15px 0 var(--accent-glow);
     
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
     --radius-full: 9999px;
     
     --transition-fast: 0.15s cubic-bezier(0.25, 0.8, 0.25, 1);
@@ -1728,7 +1728,7 @@ body {
 .skeleton-thumbnail {
     width: 100%;
     aspect-ratio: 16/9;
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
 }
@@ -1744,7 +1744,7 @@ body {
     width: 36px;
     height: 36px;
     border-radius: var(--radius-full);
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     flex-shrink: 0;
@@ -1760,7 +1760,7 @@ body {
 .skeleton-title {
     height: 14px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     width: 85%;
@@ -1769,7 +1769,7 @@ body {
 .skeleton-meta {
     height: 10px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     width: 50%;

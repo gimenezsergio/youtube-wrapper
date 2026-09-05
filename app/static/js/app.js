@@ -493,15 +493,15 @@ function renderSettingsView() {
                     <p class="form-instruction" style="margin-bottom: 15px;">Elegí en qué navegador abrir los videos al hacer clic en las tarjetas:</p>
                     
                     <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="brave" style="accent-color: var(--accent);">
                             <span style="font-weight: 600; color: var(--text-primary);">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
                         </label>
-                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="chrome" style="accent-color: var(--accent);">
                             <span style="font-weight: 600; color: var(--text-primary);">🌐 Pestaña de Chrome (Navegador actual)</span>
                         </label>
-                        <label class="filter-checkbox-label" style="background: rgba(255,255,255,0.03); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
                             <input type="radio" name="pref-browser" value="system" style="accent-color: var(--accent);">
                             <span style="font-weight: 600; color: var(--text-primary);">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
                         </label>
@@ -556,7 +556,7 @@ function renderSettingsView() {
                 html += `<h4 style="color: var(--text-primary); margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.blockedChannels.forEach(c => {
                     html += `
-                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
                             <span>${escapeHtml(c.title)}</span>
                             <button class="btn-secondary btn-sm btn-unblock-chan" data-cid="${c.id}" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">Desbloquear</button>
                         </li>
@@ -569,7 +569,7 @@ function renderSettingsView() {
                 html += `<h4 style="color: var(--text-primary); margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.hiddenVideos.forEach(v => {
                     html += `
-                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
                             <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%;">${escapeHtml(v.title)}</span>
                             <button class="btn-secondary btn-sm btn-restore-vid" data-vid="${v.id}" data-catid="${v.category_id}">Restaurar</button>
                         </li>
@@ -659,7 +659,7 @@ async function renderDiscoveriesView() {
                 <div class="channels-header">
                     <h2 class="channels-title">Descubrimiento</h2>
                 </div>
-                <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid rgba(255,255,255,0.05); max-width: 600px; margin: 40px auto;">
+                <div style="background: rgba(0,0,0,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid var(--border-color); max-width: 600px; margin: 40px auto;">
                     <div style="font-size: 2.5rem; margin-bottom: 15px;">✨</div>
                     <h3 style="color: var(--text-primary); margin-top: 0;">Configura una Categoría</h3>
                     <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
@@ -759,10 +759,10 @@ async function renderDiscoveriesView() {
                 `;
             }
             summaryBox.innerHTML = `
-                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
+                <div style="background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <span style="color: var(--text-muted);">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
-                        <span style="background: rgba(167, 139, 250, 0.15); color: #c084fc; padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
+                        <span style="background: rgba(37, 99, 235, 0.12); color: var(--accent); padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
                     </div>
                     <div style="margin-top: 10px; display: flex; gap: 20px; color: var(--text-secondary);">
                         <span>Relacionados: <strong>${matchingBatch.selectedByBand.related} / ${matchingBatch.targetByBand.related}</strong></span>
@@ -774,7 +774,7 @@ async function renderDiscoveriesView() {
             `;
         } else {
             summaryBox.innerHTML = `
-                <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
+                <div style="background: rgba(0,0,0,0.02); border: 1px dashed var(--border-color); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
                     No hay ningún lote de descubrimiento generado recientemente. Presiona <strong>Actualizar</strong> en la barra superior para buscar videos.
                 </div>
             `;
@@ -793,11 +793,11 @@ async function renderDiscoveriesView() {
             const context = item.context;
             const durationMin = Math.round(video.durationSeconds / 60) || 0;
             
-            // Colores por banda
+            // Colores por banda (Adaptados a Light Mode WCAG AAA)
             const badgeColors = {
-                "related": "background: rgba(16, 185, 129, 0.15); color: #34d399;",
-                "adjacent": "background: rgba(59, 130, 246, 0.15); color: #60a5fa;",
-                "exploratory": "background: rgba(139, 92, 246, 0.15); color: #a78bfa;"
+                "related": "background: rgba(5, 150, 105, 0.12); color: #047857;",
+                "adjacent": "background: rgba(37, 99, 235, 0.12); color: #1d4ed8;",
+                "exploratory": "background: rgba(124, 58, 237, 0.12); color: #6d28d9;"
             };
             const badgeStyle = badgeColors[context.band] || "";
 
@@ -821,12 +821,9 @@ async function renderDiscoveriesView() {
                     </h4>
                     <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(video.channel.title)}</p>
                     
-                    <div style="font-size: 0.8rem; background: rgba(255,255,255,0.02); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.03);">
+                    <div style="font-size: 0.8rem; background: rgba(0,0,0,0.03); border-radius: 6px; padding: 8px; border: 1px solid var(--border-color);">
                         <div style="color: var(--accent); font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
                         <ul style="margin: 0; padding-left: 15px; color: var(--text-secondary);">
-                            ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
-                        </ul>
-                    </div>
                             ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
                         </ul>
                     </div>
