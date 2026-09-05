@@ -21,6 +21,9 @@ function initApp() {
     // Configurar menú móvil
     setupMobileMenu();
     
+    // Configurar filtros rápidos de encabezado
+    setupQuickFilters();
+    
     // Configurar enrutador y clicks SPA (Fase 3/5)
     setupSPARouting();
     
@@ -56,6 +59,181 @@ function setupMobileMenu() {
                     menuToggle.setAttribute("aria-expanded", "false");
                 }
             }
+        });
+    }
+}
+
+function setupQuickFilters() {
+    const btnAll = document.getElementById("filter-watched-all");
+    const btnUnwatched = document.getElementById("filter-watched-unwatched");
+
+    if (btnAll) {
+        btnAll.addEventListener("click", () => {
+            setWatchedFilter("all");
+        });
+    }
+
+    if (btnUnwatched) {
+        btnUnwatched.addEventListener("click", () => {
+            setWatchedFilter("false");
+        });
+    }
+}
+
+function setWatchedFilter(val) {
+    syncHeaderQuickFilters(val);
+
+    const selectWatched = document.getElementById("select-filter-watched");
+    if (selectWatched) {
+        selectWatched.value = val;
+        selectWatched.dispatchEvent(new Event("change"));
+    } else {
+        const url = new URL(window.location.href);
+        url.searchParams.set("watched", val);
+        window.history.replaceState({}, "", url.toString());
+    }
+}
+
+function syncHeaderQuickFilters(watchedVal) {
+    const btnAll = document.getElementById("filter-watched-all");
+    const btnUnwatched = document.getElementById("filter-watched-unwatched");
+
+    if (btnAll && btnUnwatched) {
+        if (watchedVal === "false") {
+            btnAll.classList.remove("active");
+            btnUnwatched.classList.add("active");
+        } else {
+            btnAll.classList.add("active");
+            btnUnwatched.classList.remove("active");
+        }
+    }
+}
+
+let currentSyncStatus = {
+    isStale: false,
+    lastSuccessfulRun: null,
+    formattedTime: ""
+};
+
+async function checkAndRenderSyncStatus() {
+    const indicatorEl = document.getElementById("sync-status-indicator");
+    const dotEl = document.getElementById("sync-status-dot");
+    const textEl = document.getElementById("sync-status-text");
+    const btnRefreshEl = document.getElementById("btn-refresh");
+
+    if (!textEl) return;
+
+    try {
+        const resp = await fetch("/api/v1/refresh-runs/last-successful");
+        if (resp.ok) {
+            const data = await resp.json();
+            const run = data.lastSuccessfulRun;
+            const isStale = data.isStale;
+            
+            let formattedTime = "";
+            if (run && run.finishedAt) {
+                formattedTime = formatRelativeTime(run.finishedAt);
+            }
+
+            currentSyncStatus = {
+                isStale: isStale,
+                lastSuccessfulRun: run,
+                formattedTime: formattedTime
+            };
+
+            if (run && run.finishedAt) {
+                if (isStale) {
+                    textEl.textContent = `Última sinc: ${formattedTime} ⚠️`;
+                    indicatorEl?.classList.add("is-stale");
+                    if (dotEl) {
+                        dotEl.className = "sync-status-dot warning";
+                    }
+                    if (btnRefreshEl) {
+                        btnRefreshEl.classList.add("stale-highlight");
+                    }
+                } else {
+                    textEl.textContent = `Sincronizado: ${formattedTime}`;
+                    indicatorEl?.classList.remove("is-stale");
+                    if (dotEl) {
+                        dotEl.className = "sync-status-dot green";
+                    }
+                    if (btnRefreshEl) {
+                        btnRefreshEl.classList.remove("stale-highlight");
+                    }
+                }
+            } else {
+                textEl.textContent = "Sin sincronizar ⚠️";
+                indicatorEl?.classList.add("is-stale");
+                if (dotEl) {
+                    dotEl.className = "sync-status-dot warning";
+                }
+                if (btnRefreshEl) {
+                    btnRefreshEl.classList.add("stale-highlight");
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Error al obtener estado de sincronización:", err);
+    }
+}
+
+function formatRelativeTime(isoString) {
+    if (!isoString) return "";
+    try {
+        const date = new Date(isoString.replace("Z", "+00:00"));
+        const now = new Date();
+        const diffMs = now - date;
+        if (diffMs < 0) return "hace unos segundos";
+
+        const diffSecs = Math.floor(diffMs / 1000);
+        const diffMins = Math.floor(diffSecs / 60);
+        const diffHours = Math.floor(diffMins / 60);
+        const diffDays = Math.floor(diffHours / 24);
+
+        if (diffMins < 1) {
+            return "hace unos segundos";
+        } else if (diffMins < 60) {
+            return `hace ${diffMins} ${diffMins === 1 ? 'minuto' : 'minutos'}`;
+        } else if (diffHours < 24) {
+            return `hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
+        } else if (diffDays === 1) {
+            return "hace 1 día";
+        } else {
+            return `hace ${diffDays} días`;
+        }
+    } catch (e) {
+        return "";
+    }
+}
+
+function renderStaleFeedBanner(viewContainer) {
+    document.getElementById("stale-feed-banner")?.remove();
+
+    if (currentSyncStatus.isStale) {
+        const bannerTime = currentSyncStatus.formattedTime ? currentSyncStatus.formattedTime : "varios días";
+        const bannerEl = document.createElement("div");
+        bannerEl.id = "stale-feed-banner";
+        bannerEl.className = "stale-feed-banner";
+        bannerEl.innerHTML = `
+            <div class="stale-banner-content">
+                <span class="stale-banner-icon">⚠️</span>
+                <span class="stale-banner-text">Tu biblioteca no se actualiza desde ${escapeHtml(bannerTime)}. Es posible que haya nuevos videos publicados en YouTube.</span>
+            </div>
+            <button id="btn-banner-refresh" class="btn-primary btn-sm">Actualizar contenido ahora 🔄</button>
+        `;
+        
+        const categoryView = viewContainer.querySelector(".category-view");
+        const categoryToolbar = viewContainer.querySelector(".category-toolbar");
+        if (categoryView && categoryToolbar) {
+            categoryView.insertBefore(bannerEl, categoryToolbar);
+        } else if (categoryView) {
+            categoryView.prepend(bannerEl);
+        } else {
+            viewContainer.prepend(bannerEl);
+        }
+
+        bannerEl.querySelector("#btn-banner-refresh")?.addEventListener("click", () => {
+            triggerSubscriptionSync();
         });
     }
 }
@@ -96,6 +274,9 @@ async function checkAuthStatus() {
             if (data.authenticated) {
                 csrfToken = data.csrfToken;
                 showAppShell(data.email);
+                
+                // Actualizar estado de sincronización en el encabezado
+                await checkAndRenderSyncStatus();
                 
                 // Cargar categorías primero para tenerlas cacheadas en la UI
                 await loadCategories();
@@ -296,18 +477,39 @@ function renderSettingsView() {
             
             <div class="channels-grid" style="display: flex; flex-direction: column; gap: 20px;">
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Conexión Google OAuth 2.0</h3>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Conexión Google OAuth 2.0</h3>
                     <p class="form-instruction" style="margin-bottom: 15px;">Sesión activa con el correo de propietario:</p>
-                    <div style="font-weight: bold; margin-bottom: 20px; color: #a78bfa;">${escapeHtml(email)}</div>
+                    <div style="font-weight: bold; margin-bottom: 20px; color: var(--accent);">${escapeHtml(email)}</div>
                     
-                    <div style="display: flex; gap: 10px;">
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
+                        <a href="/api/v1/auth/login" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
                         <button id="btn-settings-logout" class="btn-secondary" style="border-color: #ef4444; color: #ef4444;">Cerrar Sesión</button>
                     </div>
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Diagnóstico del Sistema</h3>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Navegador para Ver Videos</h3>
+                    <p class="form-instruction" style="margin-bottom: 15px;">Elegí en qué navegador abrir los videos al hacer clic en las tarjetas:</p>
+                    
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="brave" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: var(--text-primary);">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
+                        </label>
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="chrome" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: var(--text-primary);">🌐 Pestaña de Chrome (Navegador actual)</span>
+                        </label>
+                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
+                            <input type="radio" name="pref-browser" value="system" style="accent-color: var(--accent);">
+                            <span style="font-weight: 600; color: var(--text-primary);">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Diagnóstico del Sistema</h3>
                     <p class="form-instruction">Estado actual de la base de datos y worker de sincronización.</p>
                     
                     <ul style="list-style: none; padding: 0; margin: 15px 0 0 0; display: flex; flex-direction: column; gap: 10px;">
@@ -334,9 +536,9 @@ function renderSettingsView() {
     exclusionsContainer.className = "channel-card";
     exclusionsContainer.style.cssText = "width: 100%; box-sizing: border-box; padding: 20px; margin-top: 20px;";
     exclusionsContainer.innerHTML = `
-        <h3 style="margin-top: 0; color: #fff; font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
+        <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
         <p class="form-instruction">Gestiona los canales bloqueados y videos ocultados de tu feed.</p>
-        <div id="settings-exclusions-list" style="margin-top: 15px; color: #cbd5e1;">Cargando exclusiones...</div>
+        <div id="settings-exclusions-list" style="margin-top: 15px; color: var(--text-secondary);">Cargando exclusiones...</div>
     `;
     viewContainer.querySelector(".channels-grid").appendChild(exclusionsContainer);
 
@@ -351,10 +553,10 @@ function renderSettingsView() {
             
             let html = "";
             if (data.blockedChannels.length > 0) {
-                html += `<h4 style="color: #fff; margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                html += `<h4 style="color: var(--text-primary); margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.blockedChannels.forEach(c => {
                     html += `
-                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
                             <span>${escapeHtml(c.title)}</span>
                             <button class="btn-secondary btn-sm btn-unblock-chan" data-cid="${c.id}" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">Desbloquear</button>
                         </li>
@@ -364,10 +566,10 @@ function renderSettingsView() {
             }
             
             if (data.hiddenVideos.length > 0) {
-                html += `<h4 style="color: #fff; margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                html += `<h4 style="color: var(--text-primary); margin: 20px 0 8px 0; font-size: 1rem;">Videos ocultados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.hiddenVideos.forEach(v => {
                     html += `
-                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.03);">
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
                             <span style="font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%;">${escapeHtml(v.title)}</span>
                             <button class="btn-secondary btn-sm btn-restore-vid" data-vid="${v.id}" data-catid="${v.category_id}">Restaurar</button>
                         </li>
@@ -408,6 +610,20 @@ function renderSettingsView() {
             });
         });
 
+    // Configurar radios de navegador preferido
+    const savedBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
+    const radioSelected = viewContainer.querySelector(`input[name="pref-browser"][value="${savedBrowser}"]`);
+    if (radioSelected) radioSelected.checked = true;
+
+    viewContainer.querySelectorAll('input[name="pref-browser"]').forEach(radio => {
+        radio.addEventListener("change", (e) => {
+            const val = e.target.value;
+            localStorage.setItem("yt_curator_preferred_browser", val);
+            const labelMap = { brave: "Brave Browser", chrome: "Chrome (Pestaña actual)", system: "Navegador del sistema" };
+            showNotification(`Preferencia guardada: abrir videos en ${labelMap[val] || val}`);
+        });
+    });
+
     document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
         triggerSubscriptionSync();
     });
@@ -443,10 +659,10 @@ async function renderDiscoveriesView() {
                 <div class="channels-header">
                     <h2 class="channels-title">Descubrimiento</h2>
                 </div>
-                <div style="background: rgba(255,255,255,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid rgba(255,255,255,0.05); max-width: 600px; margin: 40px auto;">
+                <div style="background: rgba(0,0,0,0.02); border-radius: 12px; padding: 40px; text-align: center; border: 1px solid var(--border-color); max-width: 600px; margin: 40px auto;">
                     <div style="font-size: 2.5rem; margin-bottom: 15px;">✨</div>
-                    <h3 style="color: #fff; margin-top: 0;">Configura una Categoría</h3>
-                    <p style="color: #cbd5e1; line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
+                    <h3 style="color: var(--text-primary); margin-top: 0;">Configura una Categoría</h3>
+                    <p style="color: var(--text-secondary); line-height: 1.6; margin-bottom: 20px;">Para poder descubrir contenido, necesitas crear al menos una categoría y asignarle palabras clave de tu interés.</p>
                 </div>
             </div>
         `;
@@ -471,14 +687,14 @@ async function renderDiscoveriesView() {
             <div class="category-toolbar" style="margin-bottom: 25px;">
                 <div class="toolbar-filters" style="display: flex; gap: 15px; width: 100%;">
                     <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Categoría</label>
+                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Categoría</label>
                         <select id="discovery-cat-select" class="select-filter" style="width: 200px;">
                             ${catOptionsHtml}
                         </select>
                     </div>
                     
                     <div class="filter-group" style="display: flex; flex-direction: column; gap: 5px;">
-                        <label style="font-size: 0.75rem; color: #94a3b8; font-weight: 500;">Banda</label>
+                        <label style="font-size: 0.75rem; color: var(--text-muted); font-weight: 500;">Banda</label>
                         <select id="discovery-band-select" class="select-filter" style="width: 180px;">
                             <option value="all" ${band === "all" ? "selected" : ""}>Todas las bandas</option>
                             <option value="related" ${band === "related" ? "selected" : ""}>Relacionado</option>
@@ -543,12 +759,12 @@ async function renderDiscoveriesView() {
                 `;
             }
             summaryBox.innerHTML = `
-                <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
+                <div style="background: rgba(0,0,0,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; font-size: 0.85rem;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span style="color: #94a3b8;">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
-                        <span style="background: rgba(167, 139, 250, 0.15); color: #c084fc; padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
+                        <span style="color: var(--text-muted);">Lote generado: <strong>${new Date(matchingBatch.generatedAt).toLocaleString()}</strong></span>
+                        <span style="background: rgba(37, 99, 235, 0.12); color: var(--accent); padding: 2px 8px; border-radius: 20px; font-weight: 600;">Lote: ${matchingBatch.selectedTotal} / 8</span>
                     </div>
-                    <div style="margin-top: 10px; display: flex; gap: 20px; color: #cbd5e1;">
+                    <div style="margin-top: 10px; display: flex; gap: 20px; color: var(--text-secondary);">
                         <span>Relacionados: <strong>${matchingBatch.selectedByBand.related} / ${matchingBatch.targetByBand.related}</strong></span>
                         <span>Cercanos: <strong>${matchingBatch.selectedByBand.adjacent} / ${matchingBatch.targetByBand.adjacent}</strong></span>
                         <span>Explorar: <strong>${matchingBatch.selectedByBand.exploratory} / ${matchingBatch.targetByBand.exploratory}</strong></span>
@@ -558,7 +774,7 @@ async function renderDiscoveriesView() {
             `;
         } else {
             summaryBox.innerHTML = `
-                <div style="background: rgba(255,255,255,0.02); border: 1px dashed rgba(255,255,255,0.1); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: #94a3b8;">
+                <div style="background: rgba(0,0,0,0.02); border: 1px dashed var(--border-color); border-radius: 12px; padding: 15px; text-align: center; font-size: 0.85rem; color: var(--text-muted);">
                     No hay ningún lote de descubrimiento generado recientemente. Presiona <strong>Actualizar</strong> en la barra superior para buscar videos.
                 </div>
             `;
@@ -577,19 +793,20 @@ async function renderDiscoveriesView() {
             const context = item.context;
             const durationMin = Math.round(video.durationSeconds / 60) || 0;
             
-            // Colores por banda
+            // Colores por banda (Adaptados a Light Mode WCAG AAA)
             const badgeColors = {
-                "related": "background: rgba(16, 185, 129, 0.15); color: #34d399;",
-                "adjacent": "background: rgba(59, 130, 246, 0.15); color: #60a5fa;",
-                "exploratory": "background: rgba(139, 92, 246, 0.15); color: #a78bfa;"
+                "related": "background: rgba(5, 150, 105, 0.12); color: #047857;",
+                "adjacent": "background: rgba(37, 99, 235, 0.12); color: #1d4ed8;",
+                "exploratory": "background: rgba(124, 58, 237, 0.12); color: #6d28d9;"
             };
             const badgeStyle = badgeColors[context.band] || "";
 
+            const videoUrl = `https://www.youtube.com/watch?v=${video.youtubeVideoId}`;
             const card = document.createElement("article");
             card.className = "video-card";
             card.id = `candidate-card-${video.id}`;
             card.innerHTML = `
-                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;">
+                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;" title="Clic para abrir, doble clic para copiar enlace">
                     <img class="video-thumbnail" src="${escapeHtml(video.thumbnailUrl || '/static/img/placeholder.jpg')}" alt="">
                     <span class="video-duration">${durationMin} min</span>
                 </div>
@@ -597,57 +814,126 @@ async function renderDiscoveriesView() {
                     <span style="font-size: 0.7rem; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 20px; align-self: flex-start; ${badgeStyle}">
                         ${escapeHtml(context.label)}
                     </span>
-                    <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: #fff; height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
-                        ${escapeHtml(video.title)}
+                    <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: var(--text-primary); height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                        <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" title="Clic para abrir, doble clic para copiar enlace">
+                            ${escapeHtml(video.title)}
+                        </a>
                     </h4>
-                    <p style="margin: 0; font-size: 0.85rem; color: #94a3b8;">${escapeHtml(video.channel.title)}</p>
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(video.channel.title)}</p>
                     
-                    <div style="font-size: 0.8rem; background: rgba(255,255,255,0.02); border-radius: 6px; padding: 8px; border: 1px solid rgba(255,255,255,0.03);">
-                        <div style="color: #a78bfa; font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
-                        <ul style="margin: 0; padding-left: 15px; color: #cbd5e1;">
+                    <div style="font-size: 0.8rem; background: rgba(0,0,0,0.03); border-radius: 6px; padding: 8px; border: 1px solid var(--border-color);">
+                        <div style="color: var(--accent); font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
+                        <ul style="margin: 0; padding-left: 15px; color: var(--text-secondary);">
                             ${context.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}
                         </ul>
                     </div>
 
                     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;">
-                        <button class="btn-primary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">👍 Me interesa</button>
-                        <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}" data-cid="${video.channel.id}">👎 No me interesa</button>
+                        <button class="btn-primary btn-sm btn-more" style="grid-column: 1 / 3;" data-vid="${video.id}">👍 Me interesa</button>
+                        <button class="btn-secondary btn-sm btn-less" data-vid="${video.id}">👎 No me interesa</button>
+                        <button class="btn-secondary btn-sm btn-accept" data-vid="${video.id}" data-cid="${video.channel.id}">➕ Seguir canal</button>
+                        <button class="btn-secondary btn-sm btn-copy-url-candidate" style="grid-column: 1 / 3;" data-vid="${video.id}">📋 Copiar enlace del video</button>
                         <button class="btn-secondary btn-sm btn-hide" style="grid-column: 1 / 3;" data-vid="${video.id}">👁️ Ocultar video</button>
                         <button class="btn-secondary btn-sm btn-block-channel" style="grid-column: 1 / 3; color: #ef4444; border-color: rgba(239,68,68,0.2);" data-cid="${video.channel.id}" data-cname="${escapeHtml(video.channel.title)}">🚫 Bloquear canal</button>
                     </div>
                 </div>
             `;
             
-            // Click to open video player / link
-            card.querySelector(".video-thumbnail-container").addEventListener("click", () => {
-                openVideoPlayer(video.id, video.youtubeVideoId, video.title);
+            let candTimeout = null;
+            let candPreventSingle = false;
+
+            const handleCandSingle = (e) => {
+                if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+                e.preventDefault();
+                candTimeout = setTimeout(() => {
+                    if (!candPreventSingle) {
+                        openVideoAndRegister(video.id, video.youtubeVideoId, card);
+                    }
+                    candPreventSingle = false;
+                }, 220);
+            };
+
+            const handleCandDbl = (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                clearTimeout(candTimeout);
+                candPreventSingle = true;
+                copyVideoUrlToClipboard(video.youtubeVideoId);
+            };
+
+            const thumbEl = card.querySelector(".video-thumbnail-container");
+            const titleEl = card.querySelector(".video-card-title-link");
+
+            if (thumbEl) {
+                thumbEl.addEventListener("click", handleCandSingle);
+                thumbEl.addEventListener("dblclick", handleCandDbl);
+            }
+            if (titleEl) {
+                titleEl.addEventListener("click", handleCandSingle);
+                titleEl.addEventListener("dblclick", handleCandDbl);
+            }
+
+            card.addEventListener("dblclick", (e) => {
+                if (e.target.closest("button")) return;
+                handleCandDbl(e);
+            });
+
+            card.querySelector(".btn-copy-url-candidate").addEventListener("click", (e) => {
+                e.stopPropagation();
+                copyVideoUrlToClipboard(video.youtubeVideoId);
             });
 
             // Action Listeners
-            card.querySelector(".btn-accept").addEventListener("click", async () => {
-                await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
-                showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
-                card.remove();
+            card.querySelector(".btn-more").addEventListener("click", async () => {
+                try {
+                    await sendFeedback(video.id, "more_like_this", null, catId);
+                    showNotification("Interés registrado. Se buscarán más videos similares.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo enviar el feedback: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-less").addEventListener("click", async () => {
-                await sendFeedback(video.id, "less_like_this", video.channel.id, catId);
-                showNotification("Afinidad reducida para esta categoría.");
-                card.remove();
+                try {
+                    await sendFeedback(video.id, "less_like_this", null, catId);
+                    showNotification("Afinidad reducida para esta categoría.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo enviar el feedback: ${escapeHtml(err.message)}`);
+                }
+            });
+
+            card.querySelector(".btn-accept").addEventListener("click", async () => {
+                try {
+                    await sendFeedback(video.id, "accept_channel", video.channel.id, catId);
+                    showNotification(`Has seguido el canal ${video.channel.title} localmente.`);
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo seguir el canal: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-hide").addEventListener("click", async () => {
-                await sendFeedback(video.id, "hide_video", null, catId);
-                showNotification("Video ocultado de este lote.");
-                card.remove();
+                try {
+                    await sendFeedback(video.id, "hide_video", null, catId);
+                    showNotification("Video ocultado de este lote.");
+                    card.remove();
+                } catch (err) {
+                    showAlertDialog("Error", `No se pudo ocultar el video: ${escapeHtml(err.message)}`);
+                }
             });
 
             card.querySelector(".btn-block-channel").addEventListener("click", async () => {
                 const confirmed = await showConfirmDialog("Bloquear Canal", `¿Estás seguro de que deseas bloquear globalmente a '${video.channel.title}'? No se volverán a recomendar sus videos.`);
                 if (confirmed) {
-                    await sendFeedback(video.id, "block_channel", video.channel.id, catId);
-                    showNotification(`Canal ${video.channel.title} bloqueado.`);
-                    card.remove();
+                    try {
+                        await sendFeedback(video.id, "block_channel", video.channel.id, catId);
+                        showNotification(`Canal ${video.channel.title} bloqueado.`);
+                        card.remove();
+                    } catch (err) {
+                        showAlertDialog("Error", `No se pudo bloquear el canal: ${escapeHtml(err.message)}`);
+                    }
                 }
             });
 
@@ -656,7 +942,7 @@ async function renderDiscoveriesView() {
 
     } catch (error) {
         console.error("Error cargando descubrimientos:", error);
-        document.getElementById("discovery-candidates-grid").innerHTML = `<div class="loading-placeholder-nav">Error al cargar: ${error.message}</div>`;
+        document.getElementById("discovery-candidates-grid").innerHTML = `<div class="loading-placeholder-nav">Error al cargar: ${escapeHtml(error.message)}</div>`;
     }
 }
 
@@ -667,7 +953,7 @@ async function sendFeedback(videoId, action, channelId = null, categoryId = null
         catId = urlParams.get("categoryId") ? parseInt(urlParams.get("categoryId")) : (currentCategories.length > 0 ? currentCategories[0].id : null);
     }
     
-    await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
+    const response = await apiFetch(`/api/v1/discoveries/${videoId}/feedback`, {
         method: "POST",
         body: {
             categoryId: catId,
@@ -675,6 +961,19 @@ async function sendFeedback(videoId, action, channelId = null, categoryId = null
             channelId: channelId
         }
     });
+
+    if (!response.ok) {
+        let errMsg = `Error ${response.status}`;
+        try {
+            const data = await response.json();
+            if (data.error && data.error.message) {
+                errMsg = data.error.message;
+            }
+        } catch (e) {
+            // ignore
+        }
+        throw new Error(errMsg);
+    }
 }
 
 /* --- Vista de Feed de Categorías (Fase 5) --- */
@@ -793,7 +1092,12 @@ async function renderCategoryFeedView(categoryId) {
         updateFiltersAndReload();
     });
 
-    selectWatched.addEventListener("change", updateFiltersAndReload);
+    syncHeaderQuickFilters(initialWatched);
+
+    selectWatched.addEventListener("change", () => {
+        syncHeaderQuickFilters(selectWatched.value);
+        updateFiltersAndReload();
+    });
     selectOrigin.addEventListener("change", updateFiltersAndReload);
 
     searchInput.addEventListener("input", () => {
@@ -808,6 +1112,9 @@ async function renderCategoryFeedView(categoryId) {
             loadCategoryVideos(categoryId, false, videosNextCursor);
         }
     });
+
+    // Renderizar banner de advertencia si la BD está desactualizada
+    renderStaleFeedBanner(viewContainer);
 
     // Cargar videos iniciales
     loadCategoryVideos(categoryId, true);
@@ -1119,6 +1426,7 @@ function createVideoCard(video) {
     card.className = `video-card ${video.watched ? "watched-video" : ""}`;
     card.setAttribute("data-video-id", video.id);
 
+    const videoUrl = `https://www.youtube.com/watch?v=${video.youtubeVideoId}`;
     const formattedDuration = formatDuration(video.durationSeconds);
     const durationTag = formattedDuration ? `<span class="video-duration-tag">${formattedDuration}</span>` : "";
 
@@ -1131,14 +1439,14 @@ function createVideoCard(video) {
     }
 
     card.innerHTML = `
-        <div class="video-thumb-wrapper">
-            <img src="${video.thumbnailUrl || ''}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
+        <div class="video-thumb-wrapper" title="Clic para ver video, doble clic para copiar enlace">
+            <img src="${escapeHtml(video.thumbnailUrl || '')}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
             ${durationTag}
         </div>
         <div class="video-info-section">
-            <img src="${video.channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
+            <img src="${escapeHtml(video.channel.thumbnailUrl || '')}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
             <div class="video-details-text">
-                <a class="video-card-title-link">${escapeHtml(video.title)}</a>
+                <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para ver video, doble clic para copiar enlace">${escapeHtml(video.title)}</a>
                 <div class="video-card-meta-row">
                     <span class="video-channel-name-lbl">${escapeHtml(video.channel.title)}</span>
                     <span class="video-date-lbl">${cleanDate}</span>
@@ -1146,6 +1454,9 @@ function createVideoCard(video) {
                 <div class="video-badges-row">${badgesHtml}</div>
             </div>
             <div class="video-actions-sidebar">
+                <button class="btn-copy-url" title="Copiar dirección del video (o doble clic en la tarjeta)">
+                    📋
+                </button>
                 <button class="btn-toggle-watch ${video.watched ? "is-watched" : ""}" title="${video.watched ? "Marcar como no visto" : "Marcar como visto"}">
                     ${video.watched ? "👁️" : "✓"}
                 </button>
@@ -1153,32 +1464,48 @@ function createVideoCard(video) {
         </div>
     `;
 
-    // Click en la miniatura o en el título para abrir el video en YouTube y registrar
-    const openAction = async (e) => {
+    let clickTimeout = null;
+    let preventSingleClick = false;
+
+    const handleSingleClick = (e) => {
+        if (e.ctrlKey || e.metaKey || e.shiftKey) return;
         e.preventDefault();
-        try {
-            const resp = await apiFetch(`/api/v1/videos/${video.id}/open`, { method: "POST" });
-            if (resp.ok) {
-                const data = await resp.json();
-                
-                // Marcar como visto localmente al instante
-                card.classList.add("watched-video");
-                const btnWatch = card.querySelector(".btn-toggle-watch");
-                if (btnWatch) {
-                    btnWatch.classList.add("is-watched");
-                    btnWatch.textContent = "👁️";
-                    btnWatch.title = "Marcar como no visto";
-                }
-                
-                window.open(data.url, "_blank");
+        clickTimeout = setTimeout(() => {
+            if (!preventSingleClick) {
+                openVideoAndRegister(video.id, video.youtubeVideoId, card);
             }
-        } catch (error) {
-            console.error("Error al abrir video:", error);
-        }
+            preventSingleClick = false;
+        }, 220);
     };
 
-    card.querySelector(".video-thumb-wrapper").addEventListener("click", openAction);
-    card.querySelector(".video-card-title-link").addEventListener("click", openAction);
+    const handleDoubleClick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(clickTimeout);
+        preventSingleClick = true;
+        copyVideoUrlToClipboard(video.youtubeVideoId);
+    };
+
+    const thumbEl = card.querySelector(".video-thumb-wrapper");
+    const titleEl = card.querySelector(".video-card-title-link");
+
+    thumbEl.addEventListener("click", handleSingleClick);
+    thumbEl.addEventListener("dblclick", handleDoubleClick);
+
+    titleEl.addEventListener("click", handleSingleClick);
+    titleEl.addEventListener("dblclick", handleDoubleClick);
+
+    // Doble clic en cualquier parte de la tarjeta para copiar enlace
+    card.addEventListener("dblclick", (e) => {
+        if (e.target.closest("button")) return;
+        handleDoubleClick(e);
+    });
+
+    // Botón directo de copiar URL
+    card.querySelector(".btn-copy-url").addEventListener("click", (e) => {
+        e.stopPropagation();
+        copyVideoUrlToClipboard(video.youtubeVideoId);
+    });
 
     // Botón de visto / no visto manual
     card.querySelector(".btn-toggle-watch").addEventListener("click", async (e) => {
@@ -1425,14 +1752,14 @@ function triggerSubscriptionSync() {
     }
     
     syncOverlay.innerHTML = `
-        <div class="sync-card" style="max-width: 500px; padding: 25px; background: #1e293b; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1); color: #fff; text-align: center;">
+        <div class="sync-card" style="max-width: 500px; padding: 25px; background: var(--bg-surface); border-radius: 12px; border: 1px solid var(--border-color); color: var(--text-primary); text-align: center;">
             <div class="spinner" style="margin: 0 auto 15px auto;"></div>
-            <h3 class="sync-title" id="sync-overlay-title" style="margin-top: 0; color: #fff;">Iniciando actualización...</h3>
-            <p class="sync-subtitle" id="sync-overlay-subtitle" style="color: #94a3b8; font-size: 0.95rem; margin-bottom: 15px;">Creando tarea de sincronización en segundo plano.</p>
+            <h3 class="sync-title" id="sync-overlay-title" style="margin-top: 0; color: var(--text-primary);">Iniciando actualización...</h3>
+            <p class="sync-subtitle" id="sync-overlay-subtitle" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 15px;">Creando tarea de sincronización en segundo plano.</p>
             <div id="sync-overlay-progress-container" style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; width: 100%; overflow: hidden; display: none; margin-bottom: 15px;">
-                <div id="sync-overlay-progress-bar" style="background: #a78bfa; height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                <div id="sync-overlay-progress-bar" style="background: var(--accent); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
             </div>
-            <div id="sync-overlay-details" style="font-size: 0.85rem; color: #cbd5e1; text-align: left; width: 100%; display: flex; flex-direction: column; gap: 6px;"></div>
+            <div id="sync-overlay-details" style="font-size: 0.85rem; color: var(--text-secondary); text-align: left; width: 100%; display: flex; flex-direction: column; gap: 6px;"></div>
         </div>
     `;
     syncOverlay.classList.remove("hidden");
@@ -1483,17 +1810,17 @@ function triggerSubscriptionSync() {
                 
                 let detailsHtml = "";
                 if (counters.subscriptions) {
-                    detailsHtml += `<div>✓ Suscripciones: Creadas ${counters.subscriptions.created}, Actualizadas ${counters.subscriptions.updated}</div>`;
+                    detailsHtml += `<div>✓ Suscripciones: Creadas ${escapeHtml(String(counters.subscriptions.created))}, Actualizadas ${escapeHtml(String(counters.subscriptions.updated))}</div>`;
                 }
                 if (counters.followed_videos) {
-                    detailsHtml += `<div>✓ Videos: Creados ${counters.followed_videos.created}, Procesados ${counters.followed_videos.processed_channels} canales</div>`;
+                    detailsHtml += `<div>✓ Videos: Creados ${escapeHtml(String(counters.followed_videos.created))}, Procesados ${escapeHtml(String(counters.followed_videos.processed_channels))} canales</div>`;
                 }
                 if (counters.discovery) {
-                    detailsHtml += `<div>✓ Descubrimiento: ${counters.discovery.searches_executed} búsquedas ejecutadas</div>`;
+                    detailsHtml += `<div>✓ Descubrimiento: ${escapeHtml(String(counters.discovery.searches_executed))} búsquedas ejecutadas</div>`;
                 }
                 
                 for (const [stg, err] of Object.entries(errors)) {
-                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${stg}: ${err.split('\n')[0]}</div>`;
+                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${escapeHtml(stg)}: ${escapeHtml(err.split('\n')[0])}</div>`;
                 }
                 
                 document.getElementById("sync-overlay-details").innerHTML = detailsHtml;
@@ -1502,6 +1829,20 @@ function triggerSubscriptionSync() {
                     clearInterval(intervalId);
                     syncOverlay.classList.add("hidden");
                     
+                    const hasAuthError = Object.values(errors).some(errStr => 
+                        errStr.includes("invalid_grant") || 
+                        errStr.includes("expired or revoked") || 
+                        errStr.includes("caducada") || 
+                        errStr.includes("revocado")
+                    );
+
+                    if (hasAuthError) {
+                        showAuthErrorDialog();
+                        await checkAndRenderSyncStatus();
+                        handleCurrentRoute();
+                        return;
+                    }
+
                     let msg = "";
                     if (status === "succeeded") {
                         msg = "¡Sincronización finalizada con éxito!";
@@ -1515,6 +1856,7 @@ function triggerSubscriptionSync() {
                         status === "succeeded" ? "Actualización Exitosa" : "Actualización Finalizada",
                         `${msg}\n\nDetalles:\n- Suscripciones creadas: ${counters.subscriptions?.created || 0}\n- Videos importados: ${counters.followed_videos?.created || 0}\n- Búsquedas de descubrimiento: ${counters.discovery?.searches_executed || 0}`
                     );
+                    await checkAndRenderSyncStatus();
                     handleCurrentRoute();
                 }
             } catch (err) {
@@ -2056,6 +2398,131 @@ function setupRefreshButton() {
         btnRefresh.addEventListener("click", () => {
             triggerSubscriptionSync();
         });
+    }
+}
+
+function showAuthErrorDialog() {
+    const dialogId = "custom-auth-error-dialog";
+    document.getElementById(dialogId)?.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = dialogId;
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+        <div class="modal-card" style="max-width: 480px;">
+            <div class="modal-header">
+                <h3 class="modal-title" style="color: #f87171;">⚠️ Conexión con Google Expirada</h3>
+                <button class="btn-close-modal" id="btn-close-auth-err">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 15px 0; font-size: 0.95rem;">
+                    Tu sesión o token de autorización de Google/YouTube ha expirado o fue revocado por Google (<code>invalid_grant</code>).
+                </p>
+                <p style="color: #94a3b8; line-height: 1.5; margin: 0 0 20px 0; font-size: 0.85rem;">
+                    Para volver a sincronizar tus suscripciones y descargar nuevos videos, hacé clic en el botón de abajo para reconectar tu cuenta de Google.
+                </p>
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button class="btn-secondary" id="btn-auth-err-cancel">Cancelar</button>
+                    <a href="/api/v1/auth/login" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                        🔑 Reconectar con Google
+                    </a>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    const close = () => {
+        overlay.classList.add("hidden");
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    document.getElementById("btn-close-auth-err").addEventListener("click", close);
+    document.getElementById("btn-auth-err-cancel").addEventListener("click", close);
+}
+
+function showNotification(message, duration = 3000) {
+    let container = document.getElementById("toast-container");
+    if (!container) {
+        container = document.createElement("div");
+        container.id = "toast-container";
+        container.className = "toast-container";
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement("div");
+    toast.className = "toast-notification";
+    toast.innerHTML = `<span class="toast-message">${escapeHtml(message)}</span>`;
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("toast-show");
+    });
+
+    setTimeout(() => {
+        toast.classList.remove("toast-show");
+        toast.classList.add("toast-hide");
+        toast.addEventListener("transitionend", () => {
+            toast.remove();
+        });
+    }, duration);
+}
+
+async function copyVideoUrlToClipboard(youtubeVideoId) {
+    const url = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    try {
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(url);
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = url;
+            textArea.style.position = "fixed";
+            textArea.style.opacity = "0";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            document.execCommand("copy");
+            document.body.removeChild(textArea);
+        }
+        showNotification(`📋 Enlace copiado al portapapeles: ${url}`);
+        return true;
+    } catch (err) {
+        console.error("Error al copiar enlace:", err);
+        showNotification("No se pudo copiar el enlace al portapapeles.");
+        return false;
+    }
+}
+
+async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null) {
+    const defaultUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    const preferredBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
+
+    try {
+        const resp = await apiFetch(`/api/v1/videos/${videoId}/open?browser=${preferredBrowser}`, { method: "POST" });
+        if (resp.ok) {
+            const data = await resp.json();
+            if (cardElement) {
+                cardElement.classList.add("watched-video");
+                const btnWatch = cardElement.querySelector(".btn-toggle-watch");
+                if (btnWatch) {
+                    btnWatch.classList.add("is-watched");
+                    btnWatch.textContent = "👁️";
+                    btnWatch.title = "Marcar como no visto";
+                }
+            }
+
+            if (data.openedInExternalBrowser) {
+                showNotification(`🚀 Video abierto en ${data.browserUsed || "Brave Browser"}`);
+            } else {
+                window.open(data.url || defaultUrl, "_blank");
+            }
+        } else {
+            window.open(defaultUrl, "_blank");
+        }
+    } catch (error) {
+        console.error("Error al abrir video:", error);
+        window.open(defaultUrl, "_blank");
     }
 }
 

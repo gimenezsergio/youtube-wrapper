@@ -56,7 +56,10 @@ class YouTubeGateway:
         current_app.logger.info("Solicitando refresco de access_token a Google...")
         response = requests.post(url, data=data, timeout=10)
         if response.status_code != 200:
-            raise Exception(f"Fallo al refrescar token: {response.text}")
+            err_text = response.text
+            if "invalid_grant" in err_text:
+                raise YouTubeAuthorizationError("Token de Google expirado o revocado (invalid_grant). Es necesario reconectar tu cuenta de Google.")
+            raise Exception(f"Fallo al refrescar token: {err_text}")
 
         return response.json()
 

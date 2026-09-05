@@ -1,34 +1,34 @@
 /* YouTube Curator — Premium CSS Design System */
 
 :root {
-    /* Paleta de colores HSL - Estilo Apple Light Mode */
-    --bg-main: #ffffff;          /* Blanco puro */
-    --bg-surface: #f5f5f7;       /* Gris claro macOS */
-    --bg-surface-glass: rgba(245, 245, 247, 0.85);
-    --border-color: rgba(0, 0, 0, 0.08); /* Borde translúcido ultrafino oscuro */
-    --border-color-hover: rgba(0, 0, 0, 0.15);
+    /* Paleta de colores HSL - Estilo Apple Light Mode Premium con alto contraste (WCAG AAA) */
+    --bg-main: #f8fafc;          /* Slate 50 - Fondo principal claro */
+    --bg-surface: #ffffff;       /* Blanco puro - Fondo de tarjetas y paneles */
+    --bg-surface-glass: rgba(255, 255, 255, 0.88);
+    --border-color: rgba(0, 0, 0, 0.08); /* Borde translúcido suave */
+    --border-color-hover: rgba(0, 0, 0, 0.18);
     
-    /* Textos */
-    --text-primary: #1d1d1f;     /* Gris carbón casi negro de Apple */
-    --text-secondary: #515154;   /* Gris medio */
-    --text-muted: #86868b;       /* Gris secundario claro */
+    /* Textos con alto contraste (cumplimiento WCAG AAA > 7:1) */
+    --text-primary: #0f172a;     /* Slate 900 - Carbón oscuro muy legible */
+    --text-secondary: #334155;   /* Slate 700 - Gris oscuro */
+    --text-muted: #64748b;       /* Slate 500 - Gris medio de apoyo */
     
     /* Accent y branding */
-    --accent: #0071e3;           /* Azul oficial Apple Store */
-    --accent-hover: #0077ed;
-    --accent-glow: rgba(0, 113, 227, 0.08);
-    --youtube-red: #ff3b30;      /* Rojo Apple System Light */
-    --success: #34c759;          /* Verde Apple System Light */
-    --warning: #ff9500;          /* Naranja Apple System Light */
+    --accent: #2563eb;           /* Azul real brillante */
+    --accent-hover: #1d4ed8;
+    --accent-glow: rgba(37, 99, 235, 0.12);
+    --youtube-red: #dc2626;      /* Rojo vibrante */
+    --success: #059669;          /* Verde esmeralda */
+    --warning: #d97706;          /* Ámbar visible */
     
     /* Fuentes de sistema Apple */
     --font-heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --font-body: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
     
     /* Shadows y bordes */
-    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.02);
-    --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.03);
-    --shadow-lg: 0 12px 30px 0 rgba(0, 0, 0, 0.06);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    --shadow-md: 0 4px 12px 0 rgba(0, 0, 0, 0.06);
+    --shadow-lg: 0 12px 30px 0 rgba(0, 0, 0, 0.10);
     --shadow-glow: 0 0 15px 0 var(--accent-glow);
     
     --radius-sm: 6px;
@@ -1728,7 +1728,7 @@ body {
 .skeleton-thumbnail {
     width: 100%;
     aspect-ratio: 16/9;
-    background: linear-gradient(90deg, #e5e5ea 25%, #f2f2f7 50%, #e5e5ea 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
 }
@@ -1744,7 +1744,7 @@ body {
     width: 36px;
     height: 36px;
     border-radius: var(--radius-full);
-    background: linear-gradient(90deg, #e5e5ea 25%, #f2f2f7 50%, #e5e5ea 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     flex-shrink: 0;
@@ -1760,7 +1760,7 @@ body {
 .skeleton-title {
     height: 14px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #e5e5ea 25%, #f2f2f7 50%, #e5e5ea 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     width: 85%;
@@ -1769,7 +1769,7 @@ body {
 .skeleton-meta {
     height: 10px;
     border-radius: 4px;
-    background: linear-gradient(90deg, #e5e5ea 25%, #f2f2f7 50%, #e5e5ea 75%);
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite linear;
     width: 50%;
@@ -1784,6 +1784,164 @@ body {
     }
 }
 
+/* Indicador de Estado de Sincronización y Banner de Advertencia */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
 
+.sync-status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    transition: all var(--transition-fast);
+}
 
+.sync-status-indicator.is-stale {
+    border-color: rgba(245, 158, 11, 0.4);
+    background-color: rgba(245, 158, 11, 0.08);
+    color: #d97706;
+}
 
+.sync-status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--success);
+    box-shadow: 0 0 6px var(--success);
+    transition: all var(--transition-fast);
+}
+
+.sync-status-dot.warning {
+    background-color: var(--warning);
+    box-shadow: 0 0 8px var(--warning);
+    animation: pulse-warning 2s infinite ease-in-out;
+}
+
+@keyframes pulse-warning {
+    0% { transform: scale(0.95); opacity: 0.8; }
+    50% { transform: scale(1.25); opacity: 1; }
+    100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.btn-refresh.stale-highlight {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.4);
+    animation: pulse-btn 2.5s infinite;
+}
+
+@keyframes pulse-btn {
+    0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.5); }
+    70% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
+/* Banner de advertencia en Feed cuando la BD está desactualizada */
+.stale-feed-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.08));
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius-md);
+    padding: 12px 20px;
+    margin-bottom: 24px;
+    color: var(--text-primary);
+    box-shadow: var(--shadow-sm);
+    animation: fadeIn 0.3s ease-out;
+}
+
+.stale-banner-content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.stale-banner-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.stale-banner-text {
+    line-height: 1.4;
+}
+
+@media (max-width: 640px) {
+    .stale-feed-banner {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .sync-status-indicator {
+        display: none;
+    }
+}
+
+/* Toast Notifications Container & Items */
+.toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.toast-notification {
+    pointer-events: auto;
+    background: rgba(15, 23, 42, 0.92);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    padding: 12px 20px;
+    border-radius: var(--radius-md);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4), 0 0 15px rgba(59, 130, 246, 0.2);
+    font-size: 13.5px;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+    transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    max-width: 420px;
+    word-break: break-all;
+}
+
+.toast-notification.toast-show {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+.toast-notification.toast-hide {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+}
+
+/* Copy URL action button */
+.btn-copy-url {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: var(--radius-sm);
+    transition: all var(--transition-fast);
+}
+
+.btn-copy-url:hover {
+    color: var(--accent);
+    background-color: rgba(255, 255, 255, 0.08);
+}
