@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.auth.encryption import decrypt_token, encrypt_token
-from app.integrations.youtube.gateway import YouTubeGateway
+from app.integrations.youtube.gateway import YouTubeGateway, YouTubeAuthorizationError
 
 
 def get_utc_now_iso():
@@ -56,6 +56,8 @@ class SubscriptionService:
                 db.commit()
 
                 return new_access
+            except YouTubeAuthorizationError as e:
+                raise Exception(f"Sesión de Google caducada (invalid_grant): {e}") from e
             except Exception as e:
                 raise Exception(f"Fallo al refrescar automáticamente el token de Google: {e}") from e
 
