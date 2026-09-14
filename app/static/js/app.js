@@ -1,5 +1,42 @@
 // YouTube Curator — Main Application Entry (ES Module)
 
+const APP_BASE_PATH = (window.__APP_BASE_PATH__ || "").replace(/\/$/, "");
+
+function appUrl(path) {
+    if (!APP_BASE_PATH || !path.startsWith("/") || path.startsWith(`${APP_BASE_PATH}/`)) {
+        return path;
+    }
+    return `${APP_BASE_PATH}${path}`;
+}
+
+function appPathname() {
+    const path = window.location.pathname;
+    return APP_BASE_PATH && path.startsWith(APP_BASE_PATH)
+        ? path.slice(APP_BASE_PATH.length) || "/"
+        : path;
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+    if (typeof input === "string") input = appUrl(input);
+    return nativeFetch(input, init);
+};
+
+for (const method of ["pushState", "replaceState"]) {
+    const nativeMethod = window.history[method].bind(window.history);
+    window.history[method] = (state, unused, url) =>
+        nativeMethod(state, unused, typeof url === "string" ? appUrl(url) : url);
+}
+
+document.addEventListener("click", (event) => {
+    const anchor = event.target.closest?.("a[href]");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (href?.startsWith("/") && !href.startsWith(`${APP_BASE_PATH}/`)) {
+        anchor.setAttribute("href", appUrl(href));
+    }
+}, true);
+
 let csrfToken = null;
 let activeFormKeywords = []; // Array temporal para las keywords en el formulario
 let currentCategories = []; // Array con el listado actual de categorías cargadas
@@ -419,7 +456,7 @@ function navigateToRoute(route) {
 }
 
 function handleCurrentRoute() {
-    const path = window.location.pathname;
+    const path = appPathname();
     
     // Resetear menú activo
     document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
@@ -1338,7 +1375,7 @@ function renderChannelsViewGrouped(container, groups) {
     }
     listContainer.innerHTML = ""; // Limpiar contenido anterior
 
-    const path = window.location.pathname;
+    const path = appPathname();
     const catMatch = path.match(/^\/category\/(\d+)/);
 
     if (catMatch) {
@@ -1642,7 +1679,7 @@ function createVideoCard(video) {
                         favBtn.textContent = "☆";
                         favBtn.title = "Guardar en favoritos";
                         showNotification("Video quitado de Favoritos");
-                        if (window.location.pathname === "/favorites") {
+                        if (appPathname() === "/favorites") {
                             card.remove();
                             const grid = document.getElementById("favorites-video-grid");
                             if (grid && grid.children.length === 0) {

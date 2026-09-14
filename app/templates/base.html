@@ -10,8 +10,8 @@
     <meta name="theme-color" content="#0f172a">
     
     <!-- PWA -->
-    <link rel="manifest" href="/static/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+    <link rel="apple-touch-icon" href="{{ url_for('static', filename='icons/icon-192.png') }}">
     
     <!-- Google Fonts: Outfit & Inter -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -271,6 +271,7 @@
     </div>
 
     <!-- ES Module Application JavaScript -->
+    <script>window.__APP_BASE_PATH__ = {{ request.script_root|tojson }};</script>
     <script type="module" src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
