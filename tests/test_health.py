@@ -8,3 +8,11 @@ def test_health_endpoint(client):
 
     data = json.loads(response.data)
     assert data == {"status": "ok"}
+
+
+def test_application_honors_reverse_proxy_prefix(client):
+    response = client.get("/", headers={"X-Forwarded-Prefix": "/youtube-curator"})
+
+    assert response.status_code == 200
+    assert b'/youtube-curator/static/css/styles.css' in response.data
+    assert b'window.__APP_BASE_PATH__ = "/youtube-curator"' in response.data
