@@ -95,3 +95,59 @@ class ExplorationTopicService:
                 inserted_count += 1
 
         return inserted_count
+
+    @staticmethod
+    def generate_llm_proposals(db, category_id: int, provider: Optional[str] = None, api_key: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Genera propuestas de temas adyacentes utilizando un LLM (Gemini u Ollama),
+        recolectando el contexto de la categoría y persistiendo las propuestas en 'pending'.
+        """
+        from app.services.llm_topic_service import LLMTopicService
+
+        cat_row = db.execute("SELECT name, description FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not cat_row:
+            raise ValueError(f"Categoría {category_id} no encontrada.")
+
+        cat_name = cat_row["name"]
+        cat_desc = cat_row["description"]
+
+        channels_rows = db.execute("""
+            SELECT c.title
+            FROM channels c
+            JOIN channel_categories cc ON c.id = cc.channel_id
+            WHERE cc.category_id = ?
+        """, (category_id,)).fetchall()
+        seed_channel_titles = [r["title"] for r in channels_rows if r["title"]]
+
+        kw_rows = db.execute("SELECT term FROM category_keywords WHERE category_id = ?", (category_id,)).fetchall()
+        existing_keywords = [r["term"] for r in kw_rows if r["term"]]
+
+        topics = LLMTopicService.generate_topics(
+            category_name=cat_name,
+            category_description=cat_desc,
+            seed_channel_titles=seed_channel_titles,
+            existing_keywords=existing_keywords,
+            provider=provider,
+            api_key=api_key
+        )
+
+        inserted_items = []
+        for t in topics:
+            term = t["term"]
+            rationale = t.get("rationale", "Propuesto por IA.")
+            topic_id = ExplorationTopicRepository.insert_automatic_pending(
+                db,
+                category_id=category_id,
+                term=term,
+                weight=1.0,
+                rationale=f"[IA] {rationale}"
+            )
+            if topic_id is not None:
+                inserted_items.append({
+                    "id": topic_id,
+                    "term": term,
+                    "rationale": f"[IA] {rationale}",
+                    "status": "pending"
+                })
+
+        return inserted_items

@@ -134,3 +134,26 @@ def test_channels_07_block_validation(auth_client, seed_channels):
     """Valida los campos obligatorios al bloquear."""
     response = auth_client.put("/api/v1/channels/1/block", json={})
     assert response.status_code == 422
+
+
+def test_channels_08_favorite_toggle(auth_client, seed_channels):
+    """Marcar y desmarcar un canal como preferido / favorito."""
+    # 1. Marcar como favorito
+    response = auth_client.put("/api/v1/channels/1/favorite", json={"favorite": True})
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data["favorite"] is True
+
+    # 2. Filtrar solo favorited
+    response = auth_client.get("/api/v1/channels?favorite=true")
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert len(data["items"]) == 1
+    assert data["items"][0]["id"] == 1
+
+    # 3. Desmarcar
+    response = auth_client.put("/api/v1/channels/1/favorite", json={"favorite": False})
+    assert response.status_code == 200
+    data = json.loads(response.data)
+    assert data["favorite"] is False
+

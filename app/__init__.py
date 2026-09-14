@@ -101,6 +101,7 @@ def create_app(config_name=None):
     @app.route("/category/<int:category_id>")
     @app.route("/channels")
     @app.route("/discoveries")
+    @app.route("/favorites")
     @app.route("/settings")
     def index(category_id=None):
         from flask import render_template

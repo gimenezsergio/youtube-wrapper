@@ -423,7 +423,7 @@ function handleCurrentRoute() {
     
     // Resetear menú activo
     document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
-    document.querySelectorAll("#nav-settings, #nav-discoveries").forEach(el => el.classList.remove("active"));
+    document.querySelectorAll("#nav-settings, #nav-discoveries, #nav-favorites").forEach(el => el.classList.remove("active"));
 
     // Comprobar si coincide con /category/<id>
     const catMatch = path.match(/^\/category\/(\d+)/);
@@ -448,6 +448,10 @@ function handleCurrentRoute() {
         const navDiscoveries = document.getElementById("nav-discoveries");
         if (navDiscoveries) navDiscoveries.classList.add("active");
         renderDiscoveriesView();
+    } else if (path === "/favorites") {
+        const navFavs = document.getElementById("nav-favorites");
+        if (navFavs) navFavs.classList.add("active");
+        renderFavoritesView();
     } else if (path === "/") {
         const navHome = document.getElementById("nav-home");
         if (navHome) navHome.classList.add("active");
@@ -917,8 +921,21 @@ async function renderDiscoveriesView() {
             card.querySelector(".btn-hide").addEventListener("click", async () => {
                 try {
                     await sendFeedback(video.id, "hide_video", null, catId);
-                    showNotification("Video ocultado de este lote.");
                     card.remove();
+                    showNotification("Video ocultado de este lote.", 6000, {
+                        text: "↩ Deshacer",
+                        callback: async () => {
+                            const resp = await apiFetch(`/api/v1/discoveries/${video.id}/hidden?categoryId=${catId}`, {
+                                method: "DELETE"
+                            });
+                            if (resp.ok) {
+                                showNotification("Video restaurado al lote.");
+                                renderDiscoveriesView();
+                            } else {
+                                showNotification("No se pudo restaurar el video.");
+                            }
+                        }
+                    });
                 } catch (err) {
                     showAlertDialog("Error", `No se pudo ocultar el video: ${escapeHtml(err.message)}`);
                 }
@@ -929,8 +946,22 @@ async function renderDiscoveriesView() {
                 if (confirmed) {
                     try {
                         await sendFeedback(video.id, "block_channel", video.channel.id, catId);
-                        showNotification(`Canal ${video.channel.title} bloqueado.`);
                         card.remove();
+                        showNotification(`Canal '${video.channel.title}' bloqueado.`, 6000, {
+                            text: "↩ Deshacer",
+                            callback: async () => {
+                                const resp = await apiFetch(`/api/v1/channels/${video.channel.id}/block`, {
+                                    method: "PUT",
+                                    body: { blocked: false }
+                                });
+                                if (resp.ok) {
+                                    showNotification("Canal desbloqueado.");
+                                    renderDiscoveriesView();
+                                } else {
+                                    showNotification("No se pudo desbloquear el canal.");
+                                }
+                            }
+                        });
                     } catch (err) {
                         showAlertDialog("Error", `No se pudo bloquear el canal: ${escapeHtml(err.message)}`);
                     }
@@ -976,6 +1007,34 @@ async function sendFeedback(videoId, action, channelId = null, categoryId = null
     }
 }
 
+async function toggleChannelFavorite(channelId, newFavoriteState) {
+    try {
+        const resp = await apiFetch(`/api/v1/channels/${channelId}/favorite`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ favorite: newFavoriteState })
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            const isFav = data.favorite;
+            showNotification(isFav ? "⭐ Canal marcado como preferido" : "Canal desmarcado de preferidos");
+            document.querySelectorAll(`.btn-channel-star[data-channel-id="${channelId}"]`).forEach(btn => {
+                if (isFav) {
+                    btn.classList.add("active");
+                    btn.textContent = "⭐";
+                    btn.title = "Canal preferido (clic para quitar)";
+                } else {
+                    btn.classList.remove("active");
+                    btn.textContent = "☆";
+                    btn.title = "Marcar canal como preferido";
+                }
+            });
+        }
+    } catch (err) {
+        console.error("Error al actualizar canal preferido:", err);
+    }
+}
+
 /* --- Vista de Feed de Categorías (Fase 5) --- */
 
 async function renderCategoryFeedView(categoryId) {
@@ -1005,7 +1064,8 @@ async function renderCategoryFeedView(categoryId) {
     const urlParams = new URLSearchParams(window.location.search);
     const initialView = urlParams.get("view") || "feed";
     const initialWatched = urlParams.get("watched") || "false"; // Por defecto no vistos para priorizar pendientes
-    const initialOrigin = urlParams.get("origin") || "followed";
+    const initialOrigin = urlParams.get("origin") || "all";
+    const initialFavorite = urlParams.get("favorite") || "all";
     const initialQuery = urlParams.get("query") || "";
 
     viewContainer.innerHTML = `
@@ -1027,6 +1087,11 @@ async function renderCategoryFeedView(categoryId) {
                     <input type="text" id="video-search-input" placeholder="Buscar videos..." value="${escapeHtml(initialQuery)}">
                 </div>
                 <div class="toolbar-filters">
+                    <select id="select-filter-favorite" class="select-filter">
+                        <option value="all" ${initialFavorite === "all" ? "selected" : ""}>Canales: Todos</option>
+                        <option value="true" ${initialFavorite === "true" ? "selected" : ""}>⭐ Solo Preferidos</option>
+                    </select>
+
                     <select id="select-filter-watched" class="select-filter">
                         <option value="all" ${initialWatched === "all" ? "selected" : ""}>Todos los videos</option>
                         <option value="false" ${initialWatched === "false" ? "selected" : ""}>No vistos</option>
@@ -1054,6 +1119,7 @@ async function renderCategoryFeedView(categoryId) {
     // Adjuntar listeners de filtros
     const btnFeed = document.getElementById("btn-view-feed");
     const btnChannels = document.getElementById("btn-view-channels");
+    const selectFavorite = document.getElementById("select-filter-favorite");
     const selectWatched = document.getElementById("select-filter-watched");
     const selectOrigin = document.getElementById("select-filter-origin");
     const searchInput = document.getElementById("video-search-input");
@@ -1063,6 +1129,7 @@ async function renderCategoryFeedView(categoryId) {
         const view = btnFeed.classList.contains("active") ? "feed" : "channels";
         const watched = selectWatched.value;
         const origin = selectOrigin.value;
+        const favorite = selectFavorite.value;
         const query = searchInput.value.trim();
 
         // Actualizar URL sin recargar
@@ -1070,6 +1137,11 @@ async function renderCategoryFeedView(categoryId) {
         url.searchParams.set("view", view);
         url.searchParams.set("watched", watched);
         url.searchParams.set("origin", origin);
+        if (favorite && favorite !== "all") {
+            url.searchParams.set("favorite", favorite);
+        } else {
+            url.searchParams.delete("favorite");
+        }
         if (query) {
             url.searchParams.set("query", query);
         } else {
@@ -1094,6 +1166,7 @@ async function renderCategoryFeedView(categoryId) {
 
     syncHeaderQuickFilters(initialWatched);
 
+    selectFavorite.addEventListener("change", updateFiltersAndReload);
     selectWatched.addEventListener("change", () => {
         syncHeaderQuickFilters(selectWatched.value);
         updateFiltersAndReload();
@@ -1128,6 +1201,7 @@ async function loadCategoryVideos(categoryId, reset = true, cursor = "") {
     const view = document.getElementById("btn-view-feed")?.classList.contains("active") ? "feed" : "channels";
     const watched = document.getElementById("select-filter-watched")?.value || "false";
     const origin = document.getElementById("select-filter-origin")?.value || "all";
+    const favorite = document.getElementById("select-filter-favorite")?.value || "all";
     const query = document.getElementById("video-search-input")?.value.trim() || "";
 
     if (reset) {
@@ -1188,11 +1262,15 @@ async function loadCategoryVideos(categoryId, reset = true, cursor = "") {
     }
 
     let url = `/api/v1/videos?limit=24&view=${view}&watched=${watched}&origin=${origin}`;
+    if (favorite === "true") {
+        url += `&favorite=true`;
+    }
     if (categoryId) {
         url += `&categoryId=${categoryId}`;
     }
     if (query) url += `&query=${encodeURIComponent(query)}`;
     if (cursor) url += `&cursor=${cursor}`;
+
 
     try {
         const response = await apiFetch(url);
@@ -1366,6 +1444,9 @@ function renderGroupsList(targetContainer, groups) {
         groupEl.innerHTML = `
             <div class="channel-group-header-row">
                 <div class="channel-group-header-left">
+                    <button class="btn-channel-star ${channel.favorite ? "active" : ""}" title="${channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${channel.id}">
+                        ${channel.favorite ? "⭐" : "☆"}
+                    </button>
                     <img src="${channel.thumbnailUrl || ''}" class="channel-avatar-circle" alt="${escapeHtml(channel.title)}">
                     <h3 class="channel-group-title-lbl">${escapeHtml(channel.title)} <span style="font-weight: normal; font-size: 0.95rem; color: var(--text-secondary); margin-left: 6px;">(${videos.length} ${videos.length === 1 ? 'video' : 'videos'})</span></h3>
                 </div>
@@ -1385,6 +1466,15 @@ function renderGroupsList(targetContainer, groups) {
             const isCollapsed = groupEl.classList.toggle("is-collapsed");
             setChannelExpanded(channel.id, !isCollapsed);
         });
+
+        const groupStarBtn = groupEl.querySelector(".btn-channel-star");
+        if (groupStarBtn) {
+            groupStarBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const isFav = groupStarBtn.classList.contains("active");
+                toggleChannelFavorite(channel.id, !isFav);
+            });
+        }
 
         const vGrid = groupEl.querySelector(".channel-group-videos-grid");
         const footer = groupEl.querySelector(".channel-group-footer");
@@ -1430,7 +1520,12 @@ function createVideoCard(video) {
     const formattedDuration = formatDuration(video.durationSeconds);
     const durationTag = formattedDuration ? `<span class="video-duration-tag">${formattedDuration}</span>` : "";
 
-    const cleanDate = video.publishedAt ? new Date(video.publishedAt).toLocaleDateString() : "";
+    const cleanDate = video.publishedAt ? new Date(video.publishedAt).toLocaleDateString("es-ES", {
+        day: "numeric",
+        month: "short",
+        year: "numeric"
+    }) : "";
+
 
     // Insignias
     let badgesHtml = "";
@@ -1448,12 +1543,21 @@ function createVideoCard(video) {
             <div class="video-details-text">
                 <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para ver video, doble clic para copiar enlace">${escapeHtml(video.title)}</a>
                 <div class="video-card-meta-row">
-                    <span class="video-channel-name-lbl">${escapeHtml(video.channel.title)}</span>
+                    <span class="video-channel-name-lbl">
+                        ${escapeHtml(video.channel.title)}
+                        <button class="btn-channel-star ${video.channel.favorite ? "active" : ""}" title="${video.channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${video.channel.id}">
+                            ${video.channel.favorite ? "⭐" : "☆"}
+                        </button>
+                    </span>
                     <span class="video-date-lbl">${cleanDate}</span>
                 </div>
                 <div class="video-badges-row">${badgesHtml}</div>
             </div>
             <div class="video-actions-sidebar">
+
+                <button class="btn-favorite ${video.favorited ? "active" : ""}" title="${video.favorited ? "Quitar de favoritos" : "Guardar en favoritos"}">
+                    ${video.favorited ? "★" : "☆"}
+                </button>
                 <button class="btn-copy-url" title="Copiar dirección del video (o doble clic en la tarjeta)">
                     📋
                 </button>
@@ -1500,6 +1604,58 @@ function createVideoCard(video) {
         if (e.target.closest("button")) return;
         handleDoubleClick(e);
     });
+
+    // Botón de estrella de canal preferido
+    const chanStarBtn = card.querySelector(".btn-channel-star");
+    if (chanStarBtn) {
+        chanStarBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const isFav = chanStarBtn.classList.contains("active");
+            toggleChannelFavorite(video.channel.id, !isFav);
+        });
+    }
+
+
+    // Botón de favorito
+    const favBtn = card.querySelector(".btn-favorite");
+    if (favBtn) {
+        favBtn.addEventListener("click", async (e) => {
+            e.stopPropagation();
+            const isFav = favBtn.classList.contains("active");
+            const nextState = !isFav;
+
+            try {
+                const r = await apiFetch(`/api/v1/videos/${video.id}/favorite`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ favorited: nextState })
+                });
+                if (r.ok) {
+                    if (nextState) {
+                        favBtn.classList.add("active");
+                        favBtn.textContent = "★";
+                        favBtn.title = "Quitar de favoritos";
+                        showNotification("⭐ Video guardado en Favoritos");
+                    } else {
+                        favBtn.classList.remove("active");
+                        favBtn.textContent = "☆";
+                        favBtn.title = "Guardar en favoritos";
+                        showNotification("Video quitado de Favoritos");
+                        if (window.location.pathname === "/favorites") {
+                            card.remove();
+                            const grid = document.getElementById("favorites-video-grid");
+                            if (grid && grid.children.length === 0) {
+                                renderFavoritesView();
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Error al actualizar favorito:", err);
+            }
+        });
+    }
 
     // Botón directo de copiar URL
     card.querySelector(".btn-copy-url").addEventListener("click", (e) => {
@@ -1577,6 +1733,9 @@ function renderChannelsView() {
                 </div>
                 <div class="toolbar-filters">
                     <label class="filter-checkbox-label">
+                        <input type="checkbox" id="chk-filter-favorite"> Solo preferidos ⭐
+                    </label>
+                    <label class="filter-checkbox-label">
                         <input type="checkbox" id="chk-filter-unclassified"> Solo sin clasificar
                     </label>
                     <label class="filter-checkbox-label">
@@ -1597,6 +1756,7 @@ function renderChannelsView() {
 
     // Adjuntar listeners de eventos
     const searchInput = document.getElementById("channel-search-input");
+    const chkFavorite = document.getElementById("chk-filter-favorite");
     const chkUnclassified = document.getElementById("chk-filter-unclassified");
     const chkSubscribed = document.getElementById("chk-filter-subscribed");
     const btnLoadMore = document.getElementById("btn-channels-load-more");
@@ -1609,6 +1769,7 @@ function renderChannelsView() {
         }, 300);
     });
 
+    chkFavorite.addEventListener("change", () => loadChannelsList(true));
     chkUnclassified.addEventListener("change", () => loadChannelsList(true));
     chkSubscribed.addEventListener("change", () => loadChannelsList(true));
 
@@ -1637,12 +1798,14 @@ async function loadChannelsList(reset = true, cursor = "") {
     }
 
     const query = document.getElementById("channel-search-input")?.value.trim() || "";
+    const favorite = document.getElementById("chk-filter-favorite")?.checked || false;
     const unclassified = document.getElementById("chk-filter-unclassified")?.checked || false;
     const subscribed = document.getElementById("chk-filter-subscribed")?.checked || false;
 
     // Construcción de la URL de API
     let url = `/api/v1/channels?limit=30`;
     if (query) url += `&query=${encodeURIComponent(query)}`;
+    if (favorite) url += `&favorite=true`;
     if (unclassified) url += `&unclassified=true`;
     if (subscribed) url += `&subscribed=true`;
     if (cursor) url += `&cursor=${cursor}`;
@@ -1691,8 +1854,13 @@ async function loadChannelsList(reset = true, cursor = "") {
                     <div class="channel-card-top">
                         <img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">
                         <div class="channel-card-info">
-                            <h4 class="channel-card-title">${escapeHtml(channel.title)}</h4>
-                            <div class="channel-badges">${badgesHtml}</div>
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                <h4 class="channel-card-title" style="margin: 0;">${escapeHtml(channel.title)}</h4>
+                                <button class="btn-channel-star ${channel.favorite ? "active" : ""}" title="${channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${channel.id}">
+                                    ${channel.favorite ? "⭐" : "☆"}
+                                </button>
+                            </div>
+                            <div class="channel-badges" style="margin-top: 4px;">${badgesHtml}</div>
                         </div>
                     </div>
                     <p class="channel-card-desc">${escapeHtml(channel.description || "Sin descripción")}</p>
@@ -1702,6 +1870,15 @@ async function loadChannelsList(reset = true, cursor = "") {
                         <button class="btn-secondary btn-sm btn-block-toggle">${channel.blocked ? "Desbloquear" : "Bloquear"}</button>
                     </div>
                 `;
+
+                // Configurar click en estrella preferida
+                card.querySelector(".btn-channel-star").addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const isFav = channel.favorite;
+                    toggleChannelFavorite(channel.id, !isFav);
+                    channel.favorite = !isFav;
+                });
+
 
                 // Configurar click en clasificar canal (Fase 4)
                 card.querySelector(".btn-classify").addEventListener("click", () => {
@@ -1810,17 +1987,17 @@ function triggerSubscriptionSync() {
                 
                 let detailsHtml = "";
                 if (counters.subscriptions) {
-                    detailsHtml += `<div>✓ Suscripciones: Creadas ${escapeHtml(String(counters.subscriptions.created))}, Actualizadas ${escapeHtml(String(counters.subscriptions.updated))}</div>`;
+                    detailsHtml += `<div style="color: var(--text-primary);">✓ Suscripciones: Creadas ${escapeHtml(String(counters.subscriptions.created))}, Actualizadas ${escapeHtml(String(counters.subscriptions.updated))}</div>`;
                 }
                 if (counters.followed_videos) {
-                    detailsHtml += `<div>✓ Videos: Creados ${escapeHtml(String(counters.followed_videos.created))}, Procesados ${escapeHtml(String(counters.followed_videos.processed_channels))} canales</div>`;
+                    detailsHtml += `<div style="color: var(--text-primary);">✓ Videos: Creados ${escapeHtml(String(counters.followed_videos.created))}, Canales revisados: ${escapeHtml(String(counters.followed_videos.processed_channels))}</div>`;
                 }
                 if (counters.discovery) {
-                    detailsHtml += `<div>✓ Descubrimiento: ${escapeHtml(String(counters.discovery.searches_executed))} búsquedas ejecutadas</div>`;
+                    detailsHtml += `<div style="color: var(--text-primary);">✓ Descubrimiento: ${escapeHtml(String(counters.discovery.searches_executed))} búsquedas ejecutadas</div>`;
                 }
                 
                 for (const [stg, err] of Object.entries(errors)) {
-                    detailsHtml += `<div style="color: #f87171;">✗ Error en ${escapeHtml(stg)}: ${escapeHtml(err.split('\n')[0])}</div>`;
+                    detailsHtml += `<div style="color: #ef4444;">✗ Error en ${escapeHtml(stg)}: ${escapeHtml(err.split('\n')[0])}</div>`;
                 }
                 
                 document.getElementById("sync-overlay-details").innerHTML = detailsHtml;
@@ -1854,7 +2031,7 @@ function triggerSubscriptionSync() {
                     
                     showAlertDialog(
                         status === "succeeded" ? "Actualización Exitosa" : "Actualización Finalizada",
-                        `${msg}\n\nDetalles:\n- Suscripciones creadas: ${counters.subscriptions?.created || 0}\n- Videos importados: ${counters.followed_videos?.created || 0}\n- Búsquedas de descubrimiento: ${counters.discovery?.searches_executed || 0}`
+                        `${msg}\n\nResumen de actualización:\n• Canales revisados: ${counters.followed_videos?.processed_channels || 0}\n• Videos nuevos importados: ${counters.followed_videos?.created || 0}\n• Suscripciones nuevas: ${counters.subscriptions?.created || 0}\n• Búsquedas de descubrimiento: ${counters.discovery?.searches_executed || 0}`
                     );
                     await checkAndRenderSyncStatus();
                     handleCurrentRoute();
@@ -2125,6 +2302,37 @@ function showCategoryForm(category = null) {
                 showNotification("El tema ya existe.");
             }
         });
+
+        const btnGenLlm = document.getElementById("btn-generate-llm-topics");
+        if (btnGenLlm) {
+            const newBtnGenLlm = btnGenLlm.cloneNode(true);
+            btnGenLlm.parentNode.replaceChild(newBtnGenLlm, btnGenLlm);
+
+            newBtnGenLlm.addEventListener("click", async () => {
+                const originalText = newBtnGenLlm.textContent;
+                newBtnGenLlm.disabled = true;
+                newBtnGenLlm.textContent = "⏳ Generando...";
+
+                try {
+                    const r = await apiFetch(`/api/v1/categories/${category.id}/exploration-topics/generate-llm`, {
+                        method: "POST"
+                    });
+                    if (r.ok) {
+                        const resData = await r.json();
+                        showNotification(resData.message || "Propuestas generadas con IA.");
+                        loadAndRenderCategoryTopics(category.id);
+                    } else {
+                        const errData = await r.json();
+                        showAlertDialog("Error al generar temas", errData.error?.message || "No se pudo conectar con el servicio de IA.");
+                    }
+                } catch (err) {
+                    showAlertDialog("Error de IA", err.message || "Error al solicitar la generación de temas.");
+                } finally {
+                    newBtnGenLlm.disabled = false;
+                    newBtnGenLlm.textContent = originalText;
+                }
+            });
+        }
     } else {
         modalTitle.textContent = "Nueva Categoría";
         document.getElementById("form-category-id").value = "";
@@ -2409,16 +2617,16 @@ function showAuthErrorDialog() {
     overlay.id = dialogId;
     overlay.className = "modal-overlay";
     overlay.innerHTML = `
-        <div class="modal-card" style="max-width: 480px;">
-            <div class="modal-header">
-                <h3 class="modal-title" style="color: #f87171;">⚠️ Conexión con Google Expirada</h3>
-                <button class="btn-close-modal" id="btn-close-auth-err">&times;</button>
+        <div class="modal-card" style="max-width: 480px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                <h3 class="modal-title" style="color: #ef4444; margin: 0;">⚠️ Conexión con Google Expirada</h3>
+                <button class="btn-close-modal" id="btn-close-auth-err" style="color: var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-body" style="padding: 20px;">
-                <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 15px 0; font-size: 0.95rem;">
+                <p style="color: var(--text-primary); line-height: 1.6; margin: 0 0 15px 0; font-size: 0.95rem;">
                     Tu sesión o token de autorización de Google/YouTube ha expirado o fue revocado por Google (<code>invalid_grant</code>).
                 </p>
-                <p style="color: #94a3b8; line-height: 1.5; margin: 0 0 20px 0; font-size: 0.85rem;">
+                <p style="color: var(--text-secondary); line-height: 1.5; margin: 0 0 20px 0; font-size: 0.85rem;">
                     Para volver a sincronizar tus suscripciones y descargar nuevos videos, hacé clic en el botón de abajo para reconectar tu cuenta de Google.
                 </p>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
@@ -2442,7 +2650,7 @@ function showAuthErrorDialog() {
     document.getElementById("btn-auth-err-cancel").addEventListener("click", close);
 }
 
-function showNotification(message, duration = 3000) {
+function showNotification(message, duration = 3000, actionConfig = null) {
     let container = document.getElementById("toast-container");
     if (!container) {
         container = document.createElement("div");
@@ -2453,20 +2661,46 @@ function showNotification(message, duration = 3000) {
 
     const toast = document.createElement("div");
     toast.className = "toast-notification";
-    toast.innerHTML = `<span class="toast-message">${escapeHtml(message)}</span>`;
+
+    let actionHtml = "";
+    if (actionConfig && actionConfig.text) {
+        actionHtml = `<button type="button" class="toast-action-btn">${escapeHtml(actionConfig.text)}</button>`;
+    }
+
+    toast.innerHTML = `<span class="toast-message">${escapeHtml(message)}</span>${actionHtml}`;
     container.appendChild(toast);
 
-    requestAnimationFrame(() => {
-        toast.classList.add("toast-show");
-    });
+    let timerId = null;
 
-    setTimeout(() => {
+    const dismissToast = () => {
+        if (timerId) clearTimeout(timerId);
         toast.classList.remove("toast-show");
         toast.classList.add("toast-hide");
         toast.addEventListener("transitionend", () => {
             toast.remove();
         });
-    }, duration);
+    };
+
+    if (actionConfig && actionConfig.callback) {
+        const actionBtn = toast.querySelector(".toast-action-btn");
+        if (actionBtn) {
+            actionBtn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                dismissToast();
+                try {
+                    await actionConfig.callback();
+                } catch (err) {
+                    console.error("Error al ejecutar la acción del toast:", err);
+                }
+            });
+        }
+    }
+
+    requestAnimationFrame(() => {
+        toast.classList.add("toast-show");
+    });
+
+    timerId = setTimeout(dismissToast, actionConfig ? 6000 : duration);
 }
 
 async function copyVideoUrlToClipboard(youtubeVideoId) {
@@ -2534,13 +2768,13 @@ function showAlertDialog(title, message) {
     overlay.id = dialogId;
     overlay.className = "modal-overlay";
     overlay.innerHTML = `
-        <div class="modal-card" style="max-width: 450px;">
-            <div class="modal-header">
-                <h3 class="modal-title">${escapeHtml(title)}</h3>
-                <button class="btn-close-modal" id="btn-close-alert">&times;</button>
+        <div class="modal-card" style="max-width: 450px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg);">
+            <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                <h3 class="modal-title" style="color: var(--text-primary); margin: 0; font-size: 1.1rem;">${escapeHtml(title)}</h3>
+                <button class="btn-close-modal" id="btn-close-alert" style="color: var(--text-secondary);">&times;</button>
             </div>
             <div class="modal-body" style="padding: 20px;">
-                <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${message.replace(/\n/g, "<br>")}</p>
+                <p style="color: var(--text-primary); line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${message.replace(/\n/g, "<br>")}</p>
                 <div style="display: flex; justify-content: flex-end;">
                     <button class="btn-primary" id="btn-alert-ok">Aceptar</button>
                 </div>
@@ -2568,13 +2802,13 @@ function showConfirmDialog(title, message) {
         overlay.id = dialogId;
         overlay.className = "modal-overlay";
         overlay.innerHTML = `
-            <div class="modal-card" style="max-width: 450px;">
-                <div class="modal-header">
-                    <h3 class="modal-title">${escapeHtml(title)}</h3>
-                    <button class="btn-close-modal" id="btn-close-confirm">&times;</button>
+            <div class="modal-card" style="max-width: 450px; background: var(--bg-surface); border: 1px solid var(--border-color); box-shadow: var(--shadow-lg);">
+                <div class="modal-header" style="border-bottom: 1px solid var(--border-color); padding: 16px 20px;">
+                    <h3 class="modal-title" style="color: var(--text-primary); margin: 0; font-size: 1.1rem;">${escapeHtml(title)}</h3>
+                    <button class="btn-close-modal" id="btn-close-confirm" style="color: var(--text-secondary);">&times;</button>
                 </div>
                 <div class="modal-body" style="padding: 20px;">
-                    <p style="color: #cbd5e1; line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${escapeHtml(message)}</p>
+                    <p style="color: var(--text-primary); line-height: 1.6; margin: 0 0 20px 0; font-size: 0.95rem;">${escapeHtml(message)}</p>
                     <div style="display: flex; justify-content: flex-end; gap: 10px;">
                         <button class="btn-secondary" id="btn-confirm-cancel">Cancelar</button>
                         <button class="btn-primary" id="btn-confirm-ok">Confirmar</button>
@@ -2634,4 +2868,65 @@ function escapeHtml(str) {
               .replace(/>/g, "&gt;")
               .replace(/"/g, "&quot;")
               .replace(/'/g, "&#039;");
+}
+
+/* --- Vista de Favoritos --- */
+
+async function renderFavoritesView() {
+    const container = document.getElementById("view-container");
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="favorites-view">
+            <div class="category-header">
+                <div class="category-title-area">
+                    <h2 class="category-title">⭐ Videos Favoritos</h2>
+                    <p class="category-desc">Tus videos guardados para ver más tarde o consultar cuando quieras.</p>
+                </div>
+            </div>
+
+            <div id="favorites-video-grid" class="videos-feed-grid">
+                <div class="loading-placeholder-nav">Cargando favoritos...</div>
+            </div>
+        </div>
+    `;
+
+    loadFavorites();
+}
+
+async function loadFavorites() {
+    const grid = document.getElementById("favorites-video-grid");
+    if (!grid) return;
+
+    try {
+        const response = await apiFetch("/api/v1/videos/favorites");
+        if (!response.ok) {
+            throw new Error("No se pudieron cargar los favoritos.");
+        }
+
+        const data = await response.json();
+        const items = data.items || [];
+
+        grid.innerHTML = "";
+
+        if (items.length === 0) {
+            grid.innerHTML = `
+                <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-secondary);">
+                    <p style="font-size: 2.5rem; margin-bottom: 10px;">⭐</p>
+                    <h3 style="margin-bottom: 8px; color: var(--text-primary);">Aún no tienes videos favoritos</h3>
+                    <p style="font-size: 0.9rem;">Haz clic en la estrella ☆ de cualquier tarjeta de video para guardarlo aquí.</p>
+                </div>
+            `;
+            return;
+        }
+
+        items.forEach(video => {
+            const card = createVideoCard(video);
+            grid.appendChild(card);
+        });
+
+    } catch (err) {
+        console.error("Error al cargar favoritos:", err);
+        grid.innerHTML = `<div class="loading-placeholder-nav" style="color: var(--accent); grid-column: 1 / -1;">Error al cargar favoritos: ${escapeHtml(err.message)}</div>`;
+    }
 }

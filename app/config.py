@@ -54,6 +54,12 @@ class Config:
     DISCOVERY_REGION_CODE = os.environ.get("DISCOVERY_REGION_CODE", "AR")
     DISCOVERY_RELEVANCE_LANGUAGE = os.environ.get("DISCOVERY_RELEVANCE_LANGUAGE", "es")
 
+    # Configuración de LLM para temas adyacentes
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+    LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "gemini")
+    OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "llama3.2")
+
     TESTING = False
     DEBUG = False
 

@@ -506,6 +506,34 @@ def create_exploration_topic(category_id):
         db.close()
 
 
+@discovery_bp.route("/categories/<int:category_id>/exploration-topics/generate-llm", methods=["POST"])
+def generate_llm_exploration_topics(category_id):
+    body = request.get_json(silent=True) or {}
+    provider = body.get("provider")
+
+    db = get_db_connection(current_app.config["DATABASE_PATH"])
+    try:
+        cat_check = db.execute("SELECT 1 FROM categories WHERE id = ?", (category_id,)).fetchone()
+        if not cat_check:
+            return make_error_response("NOT_FOUND", "Categoría no encontrada.", 404)
+
+        try:
+            inserted_items = ExplorationTopicService.generate_llm_proposals(db, category_id, provider=provider)
+            db.commit()
+            return jsonify({
+                "message": f"Se generaron {len(inserted_items)} nuevas propuestas de temas con IA.",
+                "items": inserted_items
+            }), 201
+        except ValueError as ve:
+            return make_error_response("VALIDATION_ERROR", str(ve), 400)
+        except RuntimeError as re:
+            return make_error_response("LLM_ERROR", str(re), 502)
+        except Exception as ex:
+            return make_error_response("SERVER_ERROR", f"Error al generar propuestas con IA: {ex}", 500)
+    finally:
+        db.close()
+
+
 def _validate_topic_update_payload(body):
     status = body.get("status")
     weight = body.get("weight")
