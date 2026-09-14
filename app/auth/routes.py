@@ -133,6 +133,17 @@ def callback():
         user_data = userinfo_resp.json()
         email = user_data.get("email")
 
+        # Verificar que el usuario otorgó permisos de YouTube si se incluyó el parámetro scope
+        granted_scope = request.args.get("scope") or tokens.get("scope")
+        if granted_scope and "youtube.readonly" not in granted_scope:
+            session.clear()
+            return jsonify({
+                "error": {
+                    "code": "INSUFFICIENT_SCOPE",
+                    "message": "Acceso denegado: Debes marcar la casilla de permisos de solo lectura de YouTube al iniciar sesión en Google para sincronizar tu biblioteca."
+                }
+            }), 403
+
         # Restricción estricta al propietario configurado
         owner_email = current_app.config["OWNER_GOOGLE_EMAIL"]
         if not email or email.lower() != owner_email.lower():

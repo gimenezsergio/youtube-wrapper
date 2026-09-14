@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from app.db import get_db
 
@@ -8,15 +8,24 @@ videos_bp = Blueprint("videos", __name__)
 
 
 def _serialize_channel(row, category_ids=None):
+    keys = row.keys()
+    if "channel_is_favorite" in keys and row["channel_is_favorite"] is not None:
+        is_favorite = bool(row["channel_is_favorite"])
+    elif "is_favorite" in keys and row["is_favorite"] is not None:
+        is_favorite = bool(row["is_favorite"])
+    else:
+        is_favorite = False
+
     return {
-        "id": row["channel_id"],
-        "youtubeChannelId": row["channel_youtube_channel_id"],
-        "title": row["channel_title"],
-        "description": row["channel_description"],
-        "thumbnailUrl": row["channel_thumbnail_url"],
-        "subscribed": bool(row["channel_is_subscribed"]),
-        "locallyFollowed": bool(row["channel_is_locally_followed"]),
-        "blocked": bool(row["channel_is_blocked"]),
+        "id": row["channel_id"] if "channel_id" in keys else row["id"],
+        "youtubeChannelId": row["channel_youtube_channel_id"] if "channel_youtube_channel_id" in keys else row["youtube_channel_id"],
+        "title": row["channel_title"] if "channel_title" in keys else row["title"],
+        "description": row["channel_description"] if "channel_description" in keys else row["description"],
+        "thumbnailUrl": row["channel_thumbnail_url"] if "channel_thumbnail_url" in keys else row["thumbnail_url"],
+        "subscribed": bool(row["channel_is_subscribed"]) if "channel_is_subscribed" in keys else bool(row["is_subscribed"]),
+        "locallyFollowed": bool(row["channel_is_locally_followed"]) if "channel_is_locally_followed" in keys else bool(row["is_locally_followed"]),
+        "blocked": bool(row["channel_is_blocked"]) if "channel_is_blocked" in keys else bool(row["is_blocked"]),
+        "favorite": is_favorite,
         "categoryIds": category_ids or []
     }
 
@@ -27,6 +36,11 @@ def _serialize_video(row, discovery_contexts=None, category_ids=None):
     # Determinar origin
     is_followed = row["channel_is_subscribed"] or row["channel_is_locally_followed"]
     origin = "followed" if is_followed else "discovery"
+
+    # Extraer campos de favoritos
+    keys = row.keys()
+    favorited = bool(row["video_favorited"]) if "video_favorited" in keys and row["video_favorited"] is not None else False
+    favorited_at = row["video_favorited_at"] if "video_favorited_at" in keys else None
 
     return {
         "id": row["id"],
@@ -40,11 +54,13 @@ def _serialize_video(row, discovery_contexts=None, category_ids=None):
         "contentType": row["content_type"],
         "origin": origin,
         "watched": bool(row["video_watched"]),
+        "favorited": favorited,
+        "favoritedAt": favorited_at,
         "discoveryContexts": discovery_contexts or []
     }
 
 
-def _build_where_clause(category_id, channel_ids_str, watched, origin, query):
+def _build_where_clause(category_id, channel_ids_str, watched, origin, query, favorite=None):
     """Construye las cláusulas WHERE y los parámetros para la consulta de videos."""
     where_clauses = [
         "c.is_blocked = 0",
@@ -98,6 +114,12 @@ def _build_where_clause(category_id, channel_ids_str, watched, origin, query):
              AND NOT (c.is_subscribed = 1 OR c.is_locally_followed = 1))
         """)
 
+    # Filtro por canal preferido/favorito
+    if favorite == "true":
+        where_clauses.append("c.is_favorite = 1")
+    elif favorite == "false":
+        where_clauses.append("c.is_favorite = 0")
+
     # Filtro por búsqueda de texto (query)
     if query:
         where_clauses.append("(v.title LIKE ? OR v.description LIKE ? OR c.title LIKE ?)")
@@ -112,8 +134,12 @@ def _list_feed_view(db, where_sql, params, cursor, limit):
     cursor_params = []
     if cursor:
         try:
-            cursor_parts = cursor.split("_", 1)
-            if len(cursor_parts) == 2:
+            cursor_parts = cursor.split("_")
+            if len(cursor_parts) == 3:
+                cursor_fav, cursor_pub, cursor_id = int(cursor_parts[0]), cursor_parts[1], int(cursor_parts[2])
+                cursor_clauses = " AND (c.is_favorite < ? OR (c.is_favorite = ? AND (v.published_at < ? OR (v.published_at = ? AND v.id < ?))))"
+                cursor_params.extend([cursor_fav, cursor_fav, cursor_pub, cursor_pub, cursor_id])
+            elif len(cursor_parts) == 2:
                 cursor_pub, cursor_id = cursor_parts[0], int(cursor_parts[1])
                 cursor_clauses = " AND (v.published_at < ? OR (v.published_at = ? AND v.id < ?))"
                 cursor_params.extend([cursor_pub, cursor_pub, cursor_id])
@@ -129,14 +155,17 @@ def _list_feed_view(db, where_sql, params, cursor, limit):
                c.is_subscribed as channel_is_subscribed,
                c.is_locally_followed as channel_is_locally_followed,
                c.is_blocked as channel_is_blocked,
+               c.is_favorite as channel_is_favorite,
                vus.watched as video_watched,
                vus.opened_at as video_opened_at,
-               vus.watched_source as video_watched_source
+               vus.watched_source as video_watched_source,
+               vus.favorited as video_favorited,
+               vus.favorited_at as video_favorited_at
         FROM videos v
         JOIN channels c ON v.channel_id = c.id
         LEFT JOIN video_user_state vus ON v.id = vus.video_id
         WHERE {where_sql} {cursor_clauses}
-        ORDER BY v.published_at DESC, v.id DESC
+        ORDER BY c.is_favorite DESC, v.published_at DESC, v.id DESC
         LIMIT ?
     """
     all_params = params + cursor_params + [limit]
@@ -183,7 +212,8 @@ def _list_feed_view(db, where_sql, params, cursor, limit):
     next_cursor = None
     if len(items) == limit:
         last_item = cursor_res[-1]
-        next_cursor = f"{last_item['published_at']}_{last_item['id']}"
+        fav_val = 1 if last_item["channel_is_favorite"] else 0
+        next_cursor = f"{fav_val}_{last_item['published_at']}_{last_item['id']}"
 
     return {
         "view": "feed",
@@ -202,7 +232,8 @@ def _fetch_channel_metadata(db, page_channel_ids, placeholders):
                thumbnail_url as channel_thumbnail_url,
                is_subscribed as channel_is_subscribed,
                is_locally_followed as channel_is_locally_followed,
-               is_blocked as channel_is_blocked
+               is_blocked as channel_is_blocked,
+               is_favorite as channel_is_favorite
         FROM channels
         WHERE id IN ({placeholders})
     """, page_channel_ids).fetchall()
@@ -238,6 +269,8 @@ def _fetch_channel_videos(db, page_channel_ids, placeholders, where_sql, params,
                    vus.watched as video_watched,
                    vus.opened_at as video_opened_at,
                    vus.watched_source as video_watched_source,
+                   vus.favorited as video_favorited,
+                   vus.favorited_at as video_favorited_at,
                    ROW_NUMBER() OVER (PARTITION BY v.channel_id ORDER BY v.published_at DESC, v.id DESC) as rn
             FROM videos v
             JOIN channels c ON v.channel_id = c.id
@@ -285,8 +318,12 @@ def _list_channels_view(db, where_sql, params, cursor, limit):
     cursor_params = []
     if cursor:
         try:
-            cursor_parts = cursor.split("_", 1)
-            if len(cursor_parts) == 2:
+            cursor_parts = cursor.split("_")
+            if len(cursor_parts) == 3:
+                cursor_fav, cursor_date, cursor_chan_id = int(cursor_parts[0]), cursor_parts[1], int(cursor_parts[2])
+                cursor_clauses = " HAVING (chan_fav < ? OR (chan_fav = ? AND (latest_video_date < ? OR (latest_video_date = ? AND v.channel_id < ?))))"
+                cursor_params.extend([cursor_fav, cursor_fav, cursor_date, cursor_date, cursor_chan_id])
+            elif len(cursor_parts) == 2:
                 cursor_date, cursor_chan_id = cursor_parts[0], int(cursor_parts[1])
                 cursor_clauses = " HAVING (latest_video_date < ? OR (latest_video_date = ? AND v.channel_id < ?))"
                 cursor_params.extend([cursor_date, cursor_date, cursor_chan_id])
@@ -294,14 +331,14 @@ def _list_channels_view(db, where_sql, params, cursor, limit):
             return None, ("Cursor inválido.", 400)
 
     channels_query = f"""
-        SELECT v.channel_id, MAX(v.published_at) as latest_video_date
+        SELECT v.channel_id, MAX(c.is_favorite) as chan_fav, MAX(v.published_at) as latest_video_date
         FROM videos v
         JOIN channels c ON v.channel_id = c.id
         LEFT JOIN video_user_state vus ON v.id = vus.video_id
         WHERE {where_sql}
         GROUP BY v.channel_id
         {cursor_clauses}
-        ORDER BY latest_video_date DESC, v.channel_id DESC
+        ORDER BY chan_fav DESC, latest_video_date DESC, v.channel_id DESC
         LIMIT ?
     """
     channels_params = params + cursor_params + [limit]
@@ -335,7 +372,8 @@ def _list_channels_view(db, where_sql, params, cursor, limit):
     next_cursor = None
     if len(chan_rows) == limit:
         last_chan = chan_rows[-1]
-        next_cursor = f"{last_chan['latest_video_date']}_{last_chan['channel_id']}"
+        fav_val = 1 if last_chan['chan_fav'] else 0
+        next_cursor = f"{fav_val}_{last_chan['latest_video_date']}_{last_chan['channel_id']}"
 
     return {
         "view": "channels",
@@ -354,6 +392,7 @@ def list_videos():
     channel_ids_str = request.args.get("channelIds", type=str)
     watched = request.args.get("watched", default="all", type=str)
     origin = request.args.get("origin", default="followed", type=str)
+    favorite = request.args.get("favorite", type=str)
     view = request.args.get("view", default="feed", type=str)
     cursor = request.args.get("cursor", type=str)
     limit = min(request.args.get("limit", default=30, type=int), 100)
@@ -374,6 +413,13 @@ def list_videos():
                 "message": "origin debe ser all, followed o discovery."
             }
         }), 400
+    if favorite not in [None, "true", "false"]:
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "favorite debe ser true o false."
+            }
+        }), 400
     if view not in ["feed", "channels"]:
         return jsonify({
             "error": {
@@ -383,7 +429,8 @@ def list_videos():
         }), 400
 
     # Construir cláusula WHERE
-    where_sql, params, err = _build_where_clause(category_id, channel_ids_str, watched, origin, query)
+    where_sql, params, err = _build_where_clause(category_id, channel_ids_str, watched, origin, query, favorite)
+
     if err:
         return jsonify({"error": {"code": "VALIDATION_ERROR", "message": err[0]}}), err[1]
 
@@ -399,9 +446,73 @@ def list_videos():
         return jsonify(res), 200
 
 
+def _launch_in_brave_browser(youtube_url: str) -> bool:
+    """Intenta lanzar la URL en Brave Browser de forma multiplataforma (Linux, Windows, macOS)."""
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    # 1. Buscar en PATH del sistema
+    brave_cmd = shutil.which("brave-browser") or shutil.which("brave") or shutil.which("brave.exe")
+    if brave_cmd:
+        try:
+            subprocess.Popen([brave_cmd, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            pass
+
+    # 2. Rutas conocidas según el sistema operativo
+    system_name = sys.platform
+    if system_name.startswith("win"):
+        possible_paths = [
+            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    subprocess.Popen([path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return True
+                except Exception:
+                    pass
+    elif system_name == "darwin":
+        mac_path = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
+        if os.path.exists(mac_path):
+            try:
+                subprocess.Popen([mac_path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                pass
+        try:
+            subprocess.Popen(["open", "-a", "Brave Browser", youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            pass
+    elif system_name.startswith("linux"):
+        for path in ["/usr/bin/brave-browser", "/usr/bin/brave", "/snap/bin/brave"]:
+            if os.path.exists(path):
+                try:
+                    subprocess.Popen([path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    return True
+                except Exception:
+                    pass
+        if shutil.which("flatpak"):
+            try:
+                subprocess.Popen(["flatpak", "run", "com.brave.Browser", youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                pass
+
+    return False
+
+
 @videos_bp.route("/videos/<int:video_id>/open", methods=["POST"])
 def open_video(video_id):
-    """Registra la apertura de un video y retorna su URL de YouTube."""
+    """Registra la apertura de un video y retorna su URL de YouTube, lanzándolo opcionalmente en Brave o navegador del sistema."""
+    import webbrowser
+
     db = get_db()
 
     # Comprobar que el video existe
@@ -431,10 +542,33 @@ def open_video(video_id):
         return jsonify({"error": {"code": "DATABASE_ERROR", "message": f"Error de persistencia: {e}"}}), 500
 
     youtube_url = f"https://www.youtube.com/watch?v={yt_video_id}"
+
+    # Obtener preferencia de navegador (query param o json body)
+    req_json = request.get_json(silent=True) or {}
+    browser_param = request.args.get("browser") or req_json.get("browser") or "chrome"
+    opened_external = False
+    browser_used = None
+
+    if browser_param in ("brave", "system"):
+        if browser_param == "brave":
+            if _launch_in_brave_browser(youtube_url):
+                opened_external = True
+                browser_used = "Brave Browser"
+
+        if not opened_external:
+            try:
+                webbrowser.open(youtube_url)
+                opened_external = True
+                browser_used = "Navegador predeterminado"
+            except Exception as ex:
+                current_app.logger.error(f"Error al lanzar navegador predeterminado: {ex}")
+
     return jsonify({
         "url": youtube_url,
         "watched": True,
-        "openedAt": now_iso
+        "openedAt": now_iso,
+        "openedInExternalBrowser": opened_external,
+        "browserUsed": browser_used
     }), 200
 
 
@@ -486,3 +620,106 @@ def set_watched(video_id):
         "openedAt": state_row["opened_at"],
         "source": state_row["watched_source"]
     }), 200
+
+
+@videos_bp.route("/videos/<int:video_id>/favorite", methods=["PUT"])
+def set_favorited(video_id):
+    """Marcar o desmarcar un video como favorito."""
+    data = request.get_json(silent=True) or {}
+    favorited = data.get("favorited")
+
+    if favorited is None or not isinstance(favorited, bool):
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Es necesario indicar boolean 'favorited'."
+            }
+        }), 422
+
+    db = get_db()
+
+    # Comprobar que el video existe
+    cursor = db.execute("SELECT id FROM videos WHERE id = ?", (video_id,))
+    if not cursor.fetchone():
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Video no encontrado."}}), 404
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    fav_val = 1 if favorited else 0
+    fav_at_val = now_iso if favorited else None
+
+    try:
+        db.execute("""
+            INSERT INTO video_user_state (video_id, opened_at, open_count, watched, watched_source, favorited, favorited_at, updated_at)
+            VALUES (?, NULL, 0, 0, NULL, ?, ?, ?)
+            ON CONFLICT(video_id) DO UPDATE SET
+                favorited = ?,
+                favorited_at = ?,
+                updated_at = ?
+        """, (video_id, fav_val, fav_at_val, now_iso, fav_val, fav_at_val, now_iso))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": {"code": "DATABASE_ERROR", "message": f"Error al guardar favorito: {e}"}}), 500
+
+    return jsonify({
+        "videoId": video_id,
+        "favorited": favorited,
+        "favoritedAt": fav_at_val
+    }), 200
+
+
+@videos_bp.route("/videos/favorites", methods=["GET"])
+def list_favorite_videos():
+    """Listar videos guardados como favoritos ordenados descendentemente por fecha de favorito."""
+    db = get_db()
+
+    limit = min(request.args.get("limit", default=30, type=int), 100)
+    cursor = request.args.get("cursor", type=str)
+
+    cursor_clause = ""
+    params = []
+
+    if cursor:
+        cursor_clause = "AND (vus.favorited_at < ? OR (vus.favorited_at = ? AND v.id < ?))"
+        parts = cursor.split("_")
+        if len(parts) == 2:
+            params.extend([parts[0], parts[0], int(parts[1])])
+
+    query_sql = f"""
+        SELECT v.*,
+               c.youtube_channel_id as channel_youtube_channel_id,
+               c.title as channel_title,
+               c.description as channel_description,
+               c.thumbnail_url as channel_thumbnail_url,
+               c.is_subscribed as channel_is_subscribed,
+               c.is_locally_followed as channel_is_locally_followed,
+               c.is_blocked as channel_is_blocked,
+               vus.watched as video_watched,
+               vus.opened_at as video_opened_at,
+               vus.watched_source as video_watched_source,
+               vus.favorited as video_favorited,
+               vus.favorited_at as video_favorited_at
+        FROM videos v
+        JOIN channels c ON v.channel_id = c.id
+        JOIN video_user_state vus ON v.id = vus.video_id
+        WHERE vus.favorited = 1 AND c.is_blocked = 0 {cursor_clause}
+        ORDER BY vus.favorited_at DESC, v.id DESC
+        LIMIT ?
+    """
+
+    rows = db.execute(query_sql, params + [limit]).fetchall()
+
+    items = []
+    for r in rows:
+        items.append(_serialize_video(r))
+
+    next_cursor = None
+    if len(rows) == limit:
+        last = rows[-1]
+        next_cursor = f"{last['video_favorited_at']}_{last['id']}"
+
+    return jsonify({
+        "items": items,
+        "nextCursor": next_cursor
+    }), 200
+

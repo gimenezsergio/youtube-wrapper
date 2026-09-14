@@ -55,6 +55,10 @@
                     <span class="nav-icon">✨</span>
                     <span class="nav-label">Descubrimiento</span>
                 </a>
+                <a href="/favorites" id="nav-favorites" class="nav-item">
+                    <span class="nav-icon">⭐</span>
+                    <span class="nav-label">Favoritos</span>
+                </a>
                 <a href="/settings" id="nav-settings" class="nav-item">
                     <span class="nav-icon">⚙️</span>
                     <span class="nav-label">Ajustes</span>
@@ -86,6 +90,11 @@
                 </div>
 
                 <div class="header-actions">
+                    <!-- Indicador visual de última sincronización -->
+                    <div id="sync-status-indicator" class="sync-status-indicator" title="Estado de sincronización de la biblioteca">
+                        <span id="sync-status-dot" class="sync-status-dot green"></span>
+                        <span id="sync-status-text" class="sync-status-text">Cargando estado...</span>
+                    </div>
                     <!-- Botón de actualización manual persistente -->
                     <button id="btn-refresh" class="btn-refresh" title="Actualizar contenido">
                         <span class="refresh-icon">🔄</span>
@@ -225,9 +234,10 @@
                         <label>Temas de Exploración Adyacentes</label>
                         <p class="form-instruction">Agrega temas manualmente o aprueba/rechaza temas propuestos automáticamente.</p>
                         
-                        <div class="topic-add-inputs" style="display: flex; gap: 10px; margin-bottom: 15px;">
-                            <input type="text" id="topic-term-input" placeholder="Nuevo tema (Ej: Diseño)" style="flex: 1; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; padding: 6px 12px;">
+                        <div class="topic-add-inputs" style="display: flex; gap: 10px; margin-bottom: 15px; flex-wrap: wrap;">
+                            <input type="text" id="topic-term-input" placeholder="Nuevo tema (Ej: Diseño)" style="flex: 1; min-width: 160px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; color: #fff; padding: 6px 12px;">
                             <button type="button" id="btn-add-topic" class="btn-secondary btn-sm">Añadir Tema</button>
+                            <button type="button" id="btn-generate-llm-topics" class="btn-secondary btn-sm" style="background: rgba(147, 51, 234, 0.15); border: 1px solid rgba(147, 51, 234, 0.4); color: #c084fc;">✨ Generar con IA</button>
                         </div>
                         
                         <div id="topics-lists-container" style="display: flex; flex-direction: column; gap: 15px;">

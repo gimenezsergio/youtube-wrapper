@@ -46,6 +46,21 @@ class RefreshRunRepository:
         return dict(row) if row else None
 
     @staticmethod
+    def get_last_successful_run(db) -> Optional[Dict[str, Any]]:
+        """Obtiene la última ejecución de actualización completada con éxito o parcial."""
+        cursor = db.execute("""
+            SELECT id, status, requested_stages_json, current_stage, requested_at,
+                   started_at, finished_at, counters_json, errors_json,
+                   heartbeat_at, lease_expires_at, worker_id
+            FROM refresh_runs
+            WHERE status IN ('succeeded', 'partial') AND finished_at IS NOT NULL
+            ORDER BY finished_at DESC
+            LIMIT 1
+        """)
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    @staticmethod
     def has_active_run(db) -> bool:
         """Retorna True si hay alguna ejecución pending o running (con lease vigente)."""
         now = datetime.now(timezone.utc).isoformat()

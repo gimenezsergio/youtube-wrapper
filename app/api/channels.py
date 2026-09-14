@@ -18,15 +18,17 @@ def _serialize_channel(row):
         "subscribed": bool(row["is_subscribed"]),
         "locallyFollowed": bool(row["is_locally_followed"]),
         "blocked": bool(row["is_blocked"]),
+        "favorite": bool(row["is_favorite"]) if "is_favorite" in row.keys() else False,
         "categoryIds": category_ids
     }
 
 @channels_bp.route("/channels", methods=["GET"])
 def list_channels():
-    """Listar canales paginados con soporte de filtros (suscritos, query, categoría, sin clasificar)."""
+    """Listar canales paginados con soporte de filtros (suscritos, preferidos, query, categoría, sin clasificar)."""
     category_id = request.args.get("categoryId", type=int)
     unclassified = request.args.get("unclassified") # "true" o "false"
     subscribed = request.args.get("subscribed") # "true" o "false"
+    favorite = request.args.get("favorite") # "true" o "false"
     query_param = request.args.get("query")
     cursor = request.args.get("cursor")
     limit = request.args.get("limit", default=30, type=int)
@@ -58,6 +60,12 @@ def list_channels():
     elif subscribed == "false":
         where_clauses.append("c.is_subscribed = 0")
 
+    # Filtro por canal preferido/favorito
+    if favorite == "true":
+        where_clauses.append("c.is_favorite = 1")
+    elif favorite == "false":
+        where_clauses.append("c.is_favorite = 0")
+
     # Filtro por búsqueda de texto
     if query_param and query_param.strip():
         where_clauses.append("c.title LIKE ?")
@@ -77,7 +85,7 @@ def list_channels():
         sql_base += " WHERE " + " AND ".join(where_clauses)
 
     # Agrupamiento por ID
-    sql_base += " GROUP BY c.id ORDER BY c.id ASC LIMIT ?"
+    sql_base += " GROUP BY c.id ORDER BY c.is_favorite DESC, c.id ASC LIMIT ?"
     params.append(limit + 1)  # Pedir 1 extra para determinar si hay página siguiente
 
     cursor_db = db.execute(sql_base, params)
@@ -127,6 +135,10 @@ def set_channel_blocked(channel_id):
 
     db = get_db()
     # Verificar si el canal existe
+    chk = db.execute("SELECT 1 FROM channels WHERE id = ?", (channel_id,)).fetchone()
+    if not chk:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
+
     db.execute("UPDATE channels SET is_blocked = ? WHERE id = ?", (int(blocked), channel_id))
 
     if blocked:
@@ -149,6 +161,38 @@ def set_channel_blocked(channel_id):
         GROUP BY c.id
     """, (channel_id,))
     return jsonify(_serialize_channel(cursor.fetchone())), 200
+
+@channels_bp.route("/channels/<int:channel_id>/favorite", methods=["PUT"])
+def set_channel_favorite(channel_id):
+    """Marcar o desmarcar un canal como preferido / favorito."""
+    data = request.get_json(silent=True) or {}
+    favorite = data.get("favorite")
+
+    if favorite is None or not isinstance(favorite, bool):
+        return jsonify({
+            "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Es necesario proveer un valor booleano en 'favorite'."
+            }
+        }), 422
+
+    db = get_db()
+    chk = db.execute("SELECT 1 FROM channels WHERE id = ?", (channel_id,)).fetchone()
+    if not chk:
+        return jsonify({"error": {"code": "NOT_FOUND", "message": "Canal no encontrado."}}), 404
+
+    db.execute("UPDATE channels SET is_favorite = ? WHERE id = ?", (int(favorite), channel_id))
+    db.commit()
+
+    cursor = db.execute("""
+        SELECT c.*, GROUP_CONCAT(cc.category_id) as category_ids
+        FROM channels c
+        LEFT JOIN channel_categories cc ON c.id = cc.channel_id
+        WHERE c.id = ?
+        GROUP BY c.id
+    """, (channel_id,))
+    return jsonify(_serialize_channel(cursor.fetchone())), 200
+
 
 @channels_bp.route("/channels/<int:channel_id>/categories", methods=["PUT"])
 def update_channel_categories(channel_id):

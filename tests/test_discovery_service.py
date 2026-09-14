@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.auth.encryption import encrypt_token
 from app.db import get_db_connection
 from app.repositories.discovery_repository import DiscoveryRepository
@@ -7,6 +9,7 @@ from tests.fakes.youtube_gateway import FakeYouTubeGateway
 
 def test_discovery_service_e2e_flow(app):
     """Prueba el flujo e2e de DiscoveryService con un gateway fake determinista."""
+    now_iso = datetime.now(timezone.utc).isoformat()
     # Configurar fake gateway
     fake_gateway = FakeYouTubeGateway()
     # Inyectar resultados de búsqueda simulados
@@ -15,7 +18,7 @@ def test_discovery_service_e2e_flow(app):
             "youtube_video_id": "vid_photo_1",
             "title": "Aprender fotografía de retratos",
             "description": "Curso completo",
-            "published_at": "2026-07-30T10:00:00Z",
+            "published_at": now_iso,
             "thumbnail_url": "thumb_1",
             "channel_title": "Canal Foto 1",
             "youtube_channel_id": "UC_FOTO_1"
@@ -24,7 +27,7 @@ def test_discovery_service_e2e_flow(app):
             "youtube_video_id": "vid_photo_2",
             "title": "Fotografía de paisajes avanzado",
             "description": "Paisajes",
-            "published_at": "2026-07-30T09:00:00Z",
+            "published_at": now_iso,
             "thumbnail_url": "thumb_2",
             "channel_title": "Canal Foto 2",
             "youtube_channel_id": "UC_FOTO_2"
