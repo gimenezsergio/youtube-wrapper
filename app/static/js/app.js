@@ -524,7 +524,7 @@ function renderSettingsView() {
                     
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
-                        <a href="/api/v1/auth/login" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
+                        <a href="${appUrl('/api/v1/auth/login')}" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
                         <button id="btn-settings-logout" class="btn-secondary" style="border-color: #ef4444; color: #ef4444;">Cerrar Sesión</button>
                     </div>
                 </div>
@@ -2668,7 +2668,7 @@ function showAuthErrorDialog() {
                 </p>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-secondary" id="btn-auth-err-cancel">Cancelar</button>
-                    <a href="/api/v1/auth/login" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                    <a href="${appUrl('/api/v1/auth/login')}" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                         🔑 Reconectar con Google
                     </a>
                 </div>
