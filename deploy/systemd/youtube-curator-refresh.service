@@ -1,0 +1,19 @@
+[Unit]
+Description=Enqueue YouTube Curator daily content refresh
+After=youtube-curator-worker.service
+Requires=youtube-curator-worker.service
+
+[Service]
+Type=oneshot
+User=youtube-curator
+Group=youtube-curator
+WorkingDirectory=/opt/youtube-wrapper/app
+EnvironmentFile=/var/lib/youtube-curator/.env
+Environment=PYTHONPATH=/opt/youtube-wrapper/app
+ExecStart=/opt/youtube-wrapper/app/.venv/bin/python /opt/youtube-wrapper/app/scripts/enqueue_refresh.py
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/youtube-curator
+RestrictSUIDSGID=true

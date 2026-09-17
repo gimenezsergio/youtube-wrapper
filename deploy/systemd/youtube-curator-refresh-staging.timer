@@ -1,0 +1,11 @@
+[Unit]
+Description=Run YouTube Curator staging refresh every day at 08:00 Argentina time
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 America/Argentina/Buenos_Aires
+RandomizedDelaySec=2m
+Persistent=true
+Unit=youtube-curator-refresh-staging.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+[Unit]
+Description=YouTube Curator staging background worker
+After=network.target youtube-curator-staging.service
+
+[Service]
+Type=simple
+User=youtube-curator
+Group=youtube-curator
+WorkingDirectory=/opt/youtube-wrapper/staging
+EnvironmentFile=/var/lib/youtube-curator-staging/.env
+Environment=PYTHONPATH=/opt/youtube-wrapper/staging
+ExecStart=/opt/youtube-wrapper/app/.venv/bin/python /opt/youtube-wrapper/staging/worker.py
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/youtube-curator-staging
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target
