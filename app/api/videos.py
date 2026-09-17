@@ -446,72 +446,9 @@ def list_videos():
         return jsonify(res), 200
 
 
-def _launch_in_brave_browser(youtube_url: str) -> bool:
-    """Intenta lanzar la URL en Brave Browser de forma multiplataforma (Linux, Windows, macOS)."""
-    import os
-    import shutil
-    import subprocess
-    import sys
-
-    # 1. Buscar en PATH del sistema
-    brave_cmd = shutil.which("brave-browser") or shutil.which("brave") or shutil.which("brave.exe")
-    if brave_cmd:
-        try:
-            subprocess.Popen([brave_cmd, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except Exception:
-            pass
-
-    # 2. Rutas conocidas según el sistema operativo
-    system_name = sys.platform
-    if system_name.startswith("win"):
-        possible_paths = [
-            os.path.expandvars(r"%LOCALAPPDATA%\BraveSoftware\Brave-Browser\Application\brave.exe"),
-            r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
-            r"C:\Program Files (x86)\BraveSoftware\Brave-Browser\Application\brave.exe",
-        ]
-        for path in possible_paths:
-            if os.path.exists(path):
-                try:
-                    subprocess.Popen([path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    return True
-                except Exception:
-                    pass
-    elif system_name == "darwin":
-        mac_path = "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
-        if os.path.exists(mac_path):
-            try:
-                subprocess.Popen([mac_path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return True
-            except Exception:
-                pass
-        try:
-            subprocess.Popen(["open", "-a", "Brave Browser", youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except Exception:
-            pass
-    elif system_name.startswith("linux"):
-        for path in ["/usr/bin/brave-browser", "/usr/bin/brave", "/snap/bin/brave"]:
-            if os.path.exists(path):
-                try:
-                    subprocess.Popen([path, youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    return True
-                except Exception:
-                    pass
-        if shutil.which("flatpak"):
-            try:
-                subprocess.Popen(["flatpak", "run", "com.brave.Browser", youtube_url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                return True
-            except Exception:
-                pass
-
-    return False
-
-
 @videos_bp.route("/videos/<int:video_id>/open", methods=["POST"])
 def open_video(video_id):
-    """Registra la apertura de un video y retorna su URL de YouTube, lanzándolo opcionalmente en Brave o navegador del sistema."""
-    import webbrowser
+    """Registra la apertura de un video y retorna su URL de YouTube."""
 
     db = get_db()
 
@@ -543,32 +480,12 @@ def open_video(video_id):
 
     youtube_url = f"https://www.youtube.com/watch?v={yt_video_id}"
 
-    # Obtener preferencia de navegador (query param o json body)
-    req_json = request.get_json(silent=True) or {}
-    browser_param = request.args.get("browser") or req_json.get("browser") or "chrome"
-    opened_external = False
-    browser_used = None
-
-    if browser_param in ("brave", "system"):
-        if browser_param == "brave":
-            if _launch_in_brave_browser(youtube_url):
-                opened_external = True
-                browser_used = "Brave Browser"
-
-        if not opened_external:
-            try:
-                webbrowser.open(youtube_url)
-                opened_external = True
-                browser_used = "Navegador predeterminado"
-            except Exception as ex:
-                current_app.logger.error(f"Error al lanzar navegador predeterminado: {ex}")
-
     return jsonify({
         "url": youtube_url,
         "watched": True,
         "openedAt": now_iso,
-        "openedInExternalBrowser": opened_external,
-        "browserUsed": browser_used
+        "openedInExternalBrowser": False,
+        "browserUsed": None
     }), 200
 
 
@@ -722,4 +639,3 @@ def list_favorite_videos():
         "items": items,
         "nextCursor": next_cursor
     }), 200
-
