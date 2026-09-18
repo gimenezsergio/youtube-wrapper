@@ -7,13 +7,16 @@ Requires=youtube-curator-worker-staging.service
 Type=oneshot
 User=youtube-curator
 Group=youtube-curator
-WorkingDirectory=/opt/youtube-wrapper/refresh-staging
+WorkingDirectory=/opt/youtube-wrapper/staging
 EnvironmentFile=/var/lib/youtube-curator-staging/.env
-Environment=PYTHONPATH=/opt/youtube-wrapper/refresh-staging
-ExecStart=/opt/youtube-wrapper/app/.venv/bin/python /opt/youtube-wrapper/refresh-staging/scripts/enqueue_refresh.py
+Environment=PYTHONPATH=/opt/youtube-wrapper/staging
+ExecStart=/opt/youtube-wrapper/staging/.venv/bin/python /opt/youtube-wrapper/staging/scripts/enqueue_refresh.py
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/youtube-curator-staging
 RestrictSUIDSGID=true
+MemoryMax=256M
+CPUQuota=50%
+TasksMax=64
