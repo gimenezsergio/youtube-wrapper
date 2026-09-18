@@ -1,6 +1,6 @@
 [Unit]
-Description=YouTube Curator staging background worker
-After=network.target youtube-curator-staging.service
+Description=YouTube Curator staging web application
+After=network.target
 
 [Service]
 Type=simple
@@ -8,8 +8,7 @@ User=youtube-curator
 Group=youtube-curator
 WorkingDirectory=/opt/youtube-wrapper/staging
 EnvironmentFile=/var/lib/youtube-curator-staging/.env
-Environment=PYTHONPATH=/opt/youtube-wrapper/staging
-ExecStart=/opt/youtube-wrapper/staging/.venv/bin/python /opt/youtube-wrapper/staging/worker.py
+ExecStart=/opt/youtube-wrapper/staging/.venv/bin/gunicorn --no-control-socket --workers 1 --bind 127.0.0.1:8031 --access-logfile - --error-logfile - "app:create_app()"
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
