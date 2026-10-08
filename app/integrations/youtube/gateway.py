@@ -435,3 +435,72 @@ class YouTubeGateway:
 
         return items
 
+    def fetch_liked_videos(self, access_token: str, limit: int = 50, page_token: str = None) -> dict:
+        """
+        Obtiene los videos a los que el usuario dio 'Me Gusta' (videos.list?myRating=like).
+        Retorna un diccionario con 'items' y 'nextPageToken'.
+        """
+        url = "https://www.googleapis.com/youtube/v3/videos"
+        params = {
+            "part": "snippet,contentDetails",
+            "myRating": "like",
+            "maxResults": min(limit, 50)
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        current_app.logger.info("YouTube API Call: videos.list (myRating=like)")
+        response = self._request_with_retry("GET", url, params=params, headers=headers)
+
+        try:
+            data = response.json()
+        except Exception:
+            raise YouTubeInvalidResponseError("Respuesta de videos con like no es JSON válido.")
+
+        items = []
+        for item in data.get("items", []):
+            try:
+                video_id = item.get("id")
+                snippet = item.get("snippet", {})
+                content_details = item.get("contentDetails", {})
+
+                title = snippet.get("title", "")
+                description = snippet.get("description", "")
+                published_at = snippet.get("publishedAt", "")
+                channel_title = snippet.get("channelTitle", "")
+                youtube_channel_id = snippet.get("channelId", "")
+
+                thumbnails = snippet.get("thumbnails", {})
+                thumbnail_url = (
+                    thumbnails.get("high", {}).get("url") or
+                    thumbnails.get("medium", {}).get("url") or
+                    thumbnails.get("default", {}).get("url")
+                )
+
+                duration_str = content_details.get("duration", "")
+                duration_seconds = self._parse_iso8601_duration(duration_str)
+
+                if video_id:
+                    items.append({
+                        "youtube_video_id": video_id,
+                        "title": title,
+                        "description": description,
+                        "published_at": published_at,
+                        "thumbnail_url": thumbnail_url,
+                        "channel_title": channel_title,
+                        "youtube_channel_id": youtube_channel_id,
+                        "duration_seconds": duration_seconds
+                    })
+            except Exception as e:
+                current_app.logger.warning(f"Error procesando video con like: {e}")
+
+        return {
+            "items": items,
+            "nextPageToken": data.get("nextPageToken")
+        }
+
+

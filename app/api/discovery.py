@@ -30,6 +30,11 @@ def _serialize_run_counters(counters_raw):
         elif "followedVideos" in counters_raw:
             counters["followedVideos"] = counters_raw["followedVideos"]
 
+        if "liked_videos" in counters_raw:
+            counters["likedVideos"] = counters_raw["liked_videos"]
+        elif "likedVideos" in counters_raw:
+            counters["likedVideos"] = counters_raw["likedVideos"]
+
         if "discovery" in counters_raw:
             disc = counters_raw["discovery"]
             if isinstance(disc, dict):
@@ -381,7 +386,7 @@ def start_refresh():
         return make_error_response("VALIDATION_ERROR", "El cuerpo debe ser un objeto JSON.", 422)
 
     stages = body.get("stages")
-    valid_stages = {"subscriptions", "followed_videos", "discovery"}
+    valid_stages = {"subscriptions", "followed_videos", "liked_videos", "discovery"}
 
     if stages is not None:
         if not isinstance(stages, list):
@@ -390,7 +395,7 @@ def start_refresh():
             if not isinstance(s, str) or s not in valid_stages:
                 return make_error_response("VALIDATION_ERROR", f"Etapa desconocida: {s}", 422)
     else:
-        stages = ["subscriptions", "followed_videos", "discovery"]
+        stages = ["subscriptions", "followed_videos", "liked_videos", "discovery"]
 
     db = get_db_connection(current_app.config["DATABASE_PATH"])
     try:
