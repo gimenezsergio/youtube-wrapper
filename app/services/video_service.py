@@ -173,3 +173,111 @@ class VideoService:
         except Exception:
             db.rollback()
             raise
+
+    def sync_liked_videos(self, db, heartbeat_callback=None) -> dict:
+        """
+        Sincroniza los videos marcados con 'Me Gusta' del usuario en YouTube API.
+        Guarda los videos y actualiza video_user_state.liked = 1.
+        """
+        sub_service = SubscriptionService(gateway=self.gateway)
+        try:
+            access_token = sub_service._get_valid_access_token(db)
+        except Exception as e:
+            raise Exception(f"No se pudo obtener access token para sincronizar likes: {e}") from e
+
+        if heartbeat_callback:
+            heartbeat_callback()
+
+        page_token = None
+        total_liked_processed = 0
+        now_iso = get_utc_now_iso()
+
+        while True:
+            try:
+                result = self.gateway.fetch_liked_videos(access_token, limit=50, page_token=page_token)
+            except PermissionError:
+                access_token = sub_service._force_refresh_token(db)
+                result = self.gateway.fetch_liked_videos(access_token, limit=50, page_token=page_token)
+
+            items = result.get("items", [])
+            page_token = result.get("nextPageToken")
+
+            for item in items:
+                yt_video_id = item["youtube_video_id"]
+                yt_channel_id = item.get("youtube_channel_id")
+                channel_title = item.get("channel_title") or "Canal Desconocido"
+
+                # 1. Asegurar o resolver el id del canal en la DB
+                channel_id = None
+                if yt_channel_id:
+                    cursor = db.execute("SELECT id FROM channels WHERE youtube_channel_id = ?", (yt_channel_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        channel_id = row["id"]
+                    else:
+                        cursor = db.execute("""
+                            INSERT INTO channels (youtube_channel_id, title, description, thumbnail_url, created_at, updated_at)
+                            VALUES (?, ?, '', '', ?, ?)
+                        """, (yt_channel_id, channel_title, now_iso, now_iso))
+                        channel_id = cursor.lastrowid
+
+                # Si no hay canal ID, crear un canal placeholder genérico si es necesario
+                if not channel_id:
+                    cursor = db.execute("SELECT id FROM channels LIMIT 1")
+                    row = cursor.fetchone()
+                    if row:
+                        channel_id = row["id"]
+
+                if not channel_id:
+                    continue
+
+                # 2. Upsert video
+                db.execute("""
+                    INSERT INTO videos (
+                        youtube_video_id, channel_id, title, description, published_at,
+                        duration_seconds, thumbnail_url, content_type, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'video', ?, ?)
+                    ON CONFLICT(youtube_video_id) DO UPDATE SET
+                        title = excluded.title,
+                        description = excluded.description,
+                        published_at = excluded.published_at,
+                        duration_seconds = COALESCE(excluded.duration_seconds, duration_seconds),
+                        thumbnail_url = excluded.thumbnail_url,
+                        updated_at = excluded.updated_at
+                """, (
+                    yt_video_id,
+                    channel_id,
+                    item["title"],
+                    item["description"],
+                    item["published_at"],
+                    item.get("duration_seconds"),
+                    item["thumbnail_url"],
+                    now_iso,
+                    now_iso
+                ))
+
+                # Obtener el id del video insertado/existente
+                cursor = db.execute("SELECT id FROM videos WHERE youtube_video_id = ?", (yt_video_id,))
+                vid_row = cursor.fetchone()
+                if vid_row:
+                    video_db_id = vid_row["id"]
+                    db.execute("""
+                        INSERT INTO video_user_state (video_id, opened_at, open_count, watched, liked, liked_at, updated_at)
+                        VALUES (?, NULL, 0, 0, 1, ?, ?)
+                        ON CONFLICT(video_id) DO UPDATE SET
+                            liked = 1,
+                            liked_at = COALESCE(video_user_state.liked_at, excluded.liked_at),
+                            updated_at = excluded.updated_at
+                    """, (video_db_id, now_iso, now_iso))
+                    total_liked_processed += 1
+
+            db.commit()
+
+            if heartbeat_callback:
+                heartbeat_callback()
+
+            if not page_token:
+                break
+
+        return {"processed_liked_videos": total_liked_processed}
+

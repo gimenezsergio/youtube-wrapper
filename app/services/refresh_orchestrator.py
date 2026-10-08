@@ -87,6 +87,12 @@ class RefreshOrchestrator:
             db.commit()
             has_success = True
 
+        elif stage == "liked_videos":
+            video_service = VideoService(gateway=self.gateway)
+            counters_entry = video_service.sync_liked_videos(db, heartbeat_callback=heartbeat_callback)
+            db.commit()
+            has_success = True
+
         elif stage == "discovery":
             discovery_service = DiscoveryService(gateway=self.gateway)
             stats = discovery_service.run_discovery(db, run_id=run_id, heartbeat_callback=heartbeat_callback)

@@ -179,6 +179,11 @@ class DiscoveryRepository:
         cursor_watched = db.execute("SELECT video_id FROM video_user_state WHERE watched = 1")
         watched_video_ids = {row["video_id"] for row in cursor_watched.fetchall()}
 
+        # Videos con Me Gusta (liked)
+        cursor_liked = db.execute("SELECT video_id FROM video_user_state WHERE liked = 1")
+        liked_video_ids = {row["video_id"] for row in cursor_liked.fetchall()}
+        hidden_video_ids.update(liked_video_ids)
+
         return CategorySignals(
             category_id=category_id,
             positive_keywords=pos_kws,
@@ -407,7 +412,7 @@ class DiscoveryRepository:
         Retorna las recomendaciones activas del lote más reciente, los resúmenes de lote
         y opcionalmente el siguiente cursor (basado en offset para paginación).
         """
-        where_parts = ["dc.status = 'active'", "ch.is_blocked = 0"]
+        where_parts = ["dc.status = 'active'", "ch.is_blocked = 0", "COALESCE(vus.liked, 0) = 0"]
         params = []
 
         if category_id:

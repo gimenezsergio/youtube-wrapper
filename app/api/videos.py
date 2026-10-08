@@ -64,7 +64,8 @@ def _build_where_clause(category_id, channel_ids_str, watched, origin, query, fa
     """Construye las cláusulas WHERE y los parámetros para la consulta de videos."""
     where_clauses = [
         "c.is_blocked = 0",
-        "(v.duration_seconds IS NULL OR v.duration_seconds > 180)"  # Excluir videos cortos (<= 3 minutos)
+        "(v.duration_seconds IS NULL OR v.duration_seconds > 180)",  # Excluir videos cortos (<= 3 minutos)
+        "COALESCE(vus.liked, 0) = 0"  # Excluir videos con Me Gusta (liked) de YouTube
     ]
     params = []
 
