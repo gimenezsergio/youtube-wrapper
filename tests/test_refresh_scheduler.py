@@ -23,3 +23,16 @@ def test_enqueue_refresh_does_not_duplicate_an_active_run(app):
 
     assert first_run_id is not None
     assert second_run_id is None
+
+
+def test_refresh_timers_schedule_three_times_daily():
+    from pathlib import Path
+
+    repo_root = Path(__file__).parents[1]
+    for timer_file in [
+        repo_root / "deploy" / "systemd" / "youtube-curator-refresh.timer",
+        repo_root / "deploy" / "systemd" / "youtube-curator-refresh-staging.timer",
+    ]:
+        content = timer_file.read_text()
+        assert "08,12,17:00:00 America/Argentina/Buenos_Aires" in content
+

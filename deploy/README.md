@@ -1,13 +1,13 @@
-# Despliegue de actualización diaria
-
+# Despliegue de actualización programada
+ 
 La actualización automática reutiliza la cola y el worker existentes. El timer
-solo crea un trabajo con las etapas `subscriptions`, `followed_videos` y
+solo crea un trabajo con las etapas `subscriptions`, `followed_videos`, `liked_videos` y
 `discovery`. Si ya existe un trabajo pendiente o en ejecución, no crea otro.
-
+ 
 ## Horario
-
-`youtube-curator-refresh.timer` se ejecuta diariamente a las 08:00 en
-`America/Argentina/Buenos_Aires`, con una demora aleatoria máxima de dos minutos.
+ 
+`youtube-curator-refresh.timer` se ejecuta tres veces al día a las 08:00, 12:00
+y 17:00 en `America/Argentina/Buenos_Aires`, con una demora aleatoria máxima de dos minutos.
 `Persistent=true` recupera una ejecución perdida si el servidor estuvo apagado.
 
 ## Instalación en producción

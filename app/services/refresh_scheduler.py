@@ -4,7 +4,7 @@ from typing import Optional
 from app.db import get_db_connection
 from app.repositories.refresh_run_repository import RefreshRunRepository
 
-DEFAULT_REFRESH_STAGES = ("subscriptions", "followed_videos", "discovery")
+DEFAULT_REFRESH_STAGES = ("subscriptions", "followed_videos", "liked_videos", "discovery")
 
 
 def enqueue_refresh(db_path: str, stages: Sequence[str] = DEFAULT_REFRESH_STAGES) -> Optional[int]:
