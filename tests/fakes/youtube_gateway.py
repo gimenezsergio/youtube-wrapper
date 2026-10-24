@@ -163,7 +163,7 @@ class FakeYouTubeGateway:
         return res
 
     def search_videos(
-        self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es"
+        self, access_token, q, published_after=None, limit=25, region_code="AR", relevance_language="es", channel_id=None
     ):
         if self.search_error:
             raise self.search_error
@@ -172,6 +172,7 @@ class FakeYouTubeGateway:
             "published_after": published_after,
             "limit": limit,
             "region_code": region_code,
-            "relevance_language": relevance_language
+            "relevance_language": relevance_language,
+            "channel_id": channel_id
         })
         return self.search_responses.get(q, self.search_responses.get("default", []))
