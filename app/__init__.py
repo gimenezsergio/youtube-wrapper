@@ -83,6 +83,7 @@ def create_app(config_name=None):
     from app.api.channels import channels_bp
     from app.api.discovery import discovery_bp
     from app.api.health import health_bp
+    from app.api.search import search_bp
     from app.api.videos import videos_bp
     from app.auth.routes import auth_bp
 
@@ -92,6 +93,7 @@ def create_app(config_name=None):
     app.register_blueprint(channels_bp, url_prefix="/api/v1")
     app.register_blueprint(videos_bp, url_prefix="/api/v1")
     app.register_blueprint(discovery_bp, url_prefix="/api/v1")
+    app.register_blueprint(search_bp, url_prefix="/api/v1")
     app.register_blueprint(auth_bp, url_prefix="/api/v1")
 
     # Registrar middlewares/before_request hooks
@@ -104,6 +106,7 @@ def create_app(config_name=None):
     @app.route("/channels")
     @app.route("/discoveries")
     @app.route("/favorites")
+    @app.route("/search")
     @app.route("/settings")
     def index(category_id=None):
         from flask import render_template

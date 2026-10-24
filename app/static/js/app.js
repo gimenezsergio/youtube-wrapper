@@ -489,6 +489,12 @@ function handleCurrentRoute() {
         const navFavs = document.getElementById("nav-favorites");
         if (navFavs) navFavs.classList.add("active");
         renderFavoritesView();
+    } else if (path === "/search") {
+        const navSearch = document.getElementById("nav-search");
+        if (navSearch) navSearch.classList.add("active");
+        const urlParams = new URLSearchParams(window.location.search);
+        const query = urlParams.get("q") || "";
+        renderSearchView(query);
     } else if (path === "/") {
         const navHome = document.getElementById("nav-home");
         if (navHome) navHome.classList.add("active");
@@ -831,7 +837,7 @@ async function renderDiscoveriesView() {
                             ${escapeHtml(video.title)}
                         </a>
                     </h4>
-                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">${escapeHtml(video.channel.title)}</p>
+                    <p style="margin: 0; font-size: 0.85rem; color: var(--text-muted);">${video.channel && video.channel.youtubeChannelId ? `<a class="candidate-channel-link" href="${video.channel.youtubeChannelId.startsWith("@") ? `https://www.youtube.com/${video.channel.youtubeChannelId}` : `https://www.youtube.com/channel/${encodeURIComponent(video.channel.youtubeChannelId)}`}" target="_blank" rel="noopener noreferrer" title="Ver canal en YouTube">${escapeHtml(video.channel.title)}</a>` : escapeHtml(video.channel.title)}</p>
                     
                     <div style="font-size: 0.8rem; background: rgba(0,0,0,0.03); border-radius: 6px; padding: 8px; border: 1px solid var(--border-color);">
                         <div style="color: var(--accent); font-weight: 600; margin-bottom: 4px;">Puntuación: ${context.score.toFixed(1)}</div>
@@ -865,6 +871,9 @@ async function renderDiscoveriesView() {
             }
             if (titleEl) {
                 titleEl.addEventListener("click", handleCandSingle);
+            const candChannelLink = card.querySelector(".candidate-channel-link");
+            if (candChannelLink) {
+                candChannelLink.addEventListener("click", (e) => e.stopPropagation());
             }
 
             card.querySelector(".btn-copy-url-candidate").addEventListener("click", (e) => {
@@ -1502,6 +1511,20 @@ function createVideoCard(video) {
     card.setAttribute("data-video-id", video.id);
 
     const videoUrl = `https://www.youtube.com/watch?v=${video.youtubeVideoId}`;
+    const channelUrl = video.channel && video.channel.youtubeChannelId
+        ? (video.channel.youtubeChannelId.startsWith("@")
+            ? `https://www.youtube.com/${video.channel.youtubeChannelId}`
+            : `https://www.youtube.com/channel/${encodeURIComponent(video.channel.youtubeChannelId)}`)
+        : null;
+
+    const avatarHtml = channelUrl
+        ? `<a href="${escapeHtml(channelUrl)}" class="video-channel-avatar-link" target="_blank" rel="noopener noreferrer" title="Ver canal en YouTube"><img src="${escapeHtml((video.channel && video.channel.thumbnailUrl) || '')}" class="channel-avatar-circle" alt="${escapeHtml((video.channel && video.channel.title) || '')}"></a>`
+        : `<img src="${escapeHtml((video.channel && video.channel.thumbnailUrl) || '')}" class="channel-avatar-circle" alt="${escapeHtml((video.channel && video.channel.title) || '')}">`;
+
+    const channelTitleHtml = channelUrl
+        ? `<a href="${escapeHtml(channelUrl)}" class="video-channel-title-link" target="_blank" rel="noopener noreferrer" title="Ver canal en YouTube">${escapeHtml((video.channel && video.channel.title) || '')}</a>`
+        : escapeHtml((video.channel && video.channel.title) || '');
+
     const formattedDuration = formatDuration(video.durationSeconds);
     const durationTag = formattedDuration ? `<span class="video-duration-tag">${formattedDuration}</span>` : "";
 
@@ -1524,14 +1547,14 @@ function createVideoCard(video) {
             ${durationTag}
         </div>
         <div class="video-info-section">
-            <img src="${escapeHtml(video.channel.thumbnailUrl || '')}" class="channel-avatar-circle" alt="${escapeHtml(video.channel.title)}">
+            ${avatarHtml}
             <div class="video-details-text">
                 <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para abrir en una pestaña nueva">${escapeHtml(video.title)}</a>
                 <div class="video-card-meta-row">
                     <span class="video-channel-name-lbl">
-                        ${escapeHtml(video.channel.title)}
-                        <button class="btn-channel-star ${video.channel.favorite ? "active" : ""}" title="${video.channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${video.channel.id}">
-                            ${video.channel.favorite ? "⭐" : "☆"}
+                        ${channelTitleHtml}
+                        <button class="btn-channel-star ${(video.channel && video.channel.favorite) ? "active" : ""}" title="${(video.channel && video.channel.favorite) ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${(video.channel && video.channel.id) || ''}">
+                            ${(video.channel && video.channel.favorite) ? "⭐" : "☆"}
                         </button>
                     </span>
                     <span class="video-date-lbl">${cleanDate}</span>
@@ -1565,6 +1588,17 @@ function createVideoCard(video) {
     thumbEl.addEventListener("click", handleSingleClick);
 
     titleEl.addEventListener("click", handleSingleClick);
+
+    // Detener propagación de clics en los enlaces del canal
+    const channelLinks = card.querySelectorAll(".video-channel-title-link, .video-channel-avatar-link");
+    channelLinks.forEach((link) => {
+        link.addEventListener("click", (e) => {
+            e.stopPropagation();
+        });
+        link.addEventListener("dblclick", (e) => {
+            e.stopPropagation();
+        });
+    });
 
     // Botón de estrella de canal preferido
     const chanStarBtn = card.querySelector(".btn-channel-star");
@@ -1811,12 +1845,31 @@ async function loadChannelsList(reset = true, cursor = "") {
                     categoriesHtml = '<span class="form-instruction">Sin clasificar</span>';
                 }
 
+                // URL de YouTube del canal
+                const channelUrl = channel.youtubeChannelId
+                    ? (channel.youtubeChannelId.startsWith("@")
+                        ? `https://www.youtube.com/${channel.youtubeChannelId}`
+                        : `https://www.youtube.com/channel/${encodeURIComponent(channel.youtubeChannelId)}`)
+                    : null;
+
+                const thumbnailHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="channel-thumbnail-link" title="Abrir canal en YouTube"><img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}"></a>`
+                    : `<img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">`;
+
+                const titleHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="channel-title-link" title="Abrir canal en YouTube">${escapeHtml(channel.title)}</a>`
+                    : escapeHtml(channel.title);
+
+                const openBtnHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm btn-open-channel" title="Abrir canal en YouTube"><span>Ver canal</span> <span style="font-size: 0.85em;">↗</span></a>`
+                    : '';
+
                 card.innerHTML = `
                     <div class="channel-card-top">
-                        <img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">
+                        ${thumbnailHtml}
                         <div class="channel-card-info">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                                <h4 class="channel-card-title" style="margin: 0;">${escapeHtml(channel.title)}</h4>
+                                <h4 class="channel-card-title" style="margin: 0;">${titleHtml}</h4>
                                 <button class="btn-channel-star ${channel.favorite ? "active" : ""}" title="${channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${channel.id}">
                                     ${channel.favorite ? "⭐" : "☆"}
                                 </button>
@@ -1827,6 +1880,7 @@ async function loadChannelsList(reset = true, cursor = "") {
                     <p class="channel-card-desc">${escapeHtml(channel.description || "Sin descripción")}</p>
                     <div class="channel-card-categories">${categoriesHtml}</div>
                     <div class="channel-card-actions">
+                        ${openBtnHtml}
                         <button class="btn-secondary btn-sm btn-classify">Categorías</button>
                         <button class="btn-secondary btn-sm btn-block-toggle">${channel.blocked ? "Desbloquear" : "Bloquear"}</button>
                     </div>
@@ -2888,3 +2942,199 @@ async function loadFavorites() {
         grid.innerHTML = `<div class="loading-placeholder-nav" style="color: var(--accent); grid-column: 1 / -1;">Error al cargar favoritos: ${escapeHtml(err.message)}</div>`;
     }
 }
+
+/* --- Vista de Búsqueda Inteligente --- */
+
+function renderSearchView(initialQuery = "") {
+    const viewContainer = document.getElementById("view-container");
+    if (!viewContainer) return;
+
+    viewContainer.innerHTML = `
+        <div class="search-view">
+            <div class="search-header-box">
+                <div class="search-title-row">
+                    <h2 class="search-title">🔍 Búsqueda Inteligente</h2>
+                    <p class="search-subtitle">
+                        Busca en YouTube con prioridad en tus canales suscritos, sin Shorts ni clickbaits.
+                    </p>
+                </div>
+                
+                <form id="search-form" class="search-form">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon-inside">🔍</span>
+                        <input 
+                            type="text" 
+                            id="search-input" 
+                            class="search-input-field" 
+                            placeholder="Buscar temas, conceptos o creadores en YouTube..." 
+                            value="${escapeHtml(initialQuery)}"
+                            autocomplete="off"
+                            required
+                        >
+                        ${initialQuery ? `<button type="button" id="btn-search-clear" class="btn-search-clear" title="Limpiar">✕</button>` : ''}
+                    </div>
+                    <button type="submit" id="btn-search-submit" class="btn-primary search-btn">
+                        <span>Buscar</span>
+                    </button>
+                </form>
+            </div>
+
+            <div id="search-status" class="search-status-area"></div>
+
+            <div id="search-results" class="search-results-container ${initialQuery ? '' : 'hidden'}">
+                <!-- 1. En tus canales suscritos -->
+                <div class="search-section" id="section-subscribed-results">
+                    <div class="search-section-header">
+                        <div class="search-section-title-wrap">
+                            <span class="search-section-badge-icon">🌟</span>
+                            <h3 class="search-section-title">En tus canales suscritos</h3>
+                            <span id="badge-count-subscribed" class="count-pill">0</span>
+                        </div>
+                        <p class="search-section-desc">Videos sobre este tema de creadores que decidiste seguir.</p>
+                    </div>
+                    <div id="grid-subscribed-search" class="videos-grid"></div>
+                </div>
+
+                <!-- 2. Otros creadores en YouTube -->
+                <div class="search-section" id="section-external-results">
+                    <div class="search-section-header">
+                        <div class="search-section-title-wrap">
+                            <span class="search-section-badge-icon">🌐</span>
+                            <h3 class="search-section-title">Otros creadores en YouTube</h3>
+                            <span id="badge-count-external" class="count-pill">0</span>
+                        </div>
+                        <p class="search-section-desc">Descubrimientos filtrados sin Shorts, canales bloqueados ni videos vistos.</p>
+                    </div>
+                    <div id="grid-external-search" class="videos-grid"></div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const searchForm = document.getElementById("search-form");
+    const searchInput = document.getElementById("search-input");
+    const btnClear = document.getElementById("btn-search-clear");
+
+    if (searchInput) {
+        searchInput.focus();
+    }
+
+    if (btnClear) {
+        btnClear.addEventListener("click", () => {
+            searchInput.value = "";
+            searchInput.focus();
+            navigateToRoute("/search");
+        });
+    }
+
+    if (searchForm) {
+        searchForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            const q = searchInput.value.trim();
+            if (q) {
+                navigateToRoute(`/search?q=${encodeURIComponent(q)}`);
+            }
+        });
+    }
+
+    if (initialQuery) {
+        executeSearch(initialQuery);
+    }
+}
+
+async function executeSearch(query) {
+    const statusArea = document.getElementById("search-status");
+    const resultsContainer = document.getElementById("search-results");
+    const gridSubscribed = document.getElementById("grid-subscribed-search");
+    const gridExternal = document.getElementById("grid-external-search");
+    const badgeSub = document.getElementById("badge-count-subscribed");
+    const badgeExt = document.getElementById("badge-count-external");
+    const sectionSub = document.getElementById("section-subscribed-results");
+    const sectionExt = document.getElementById("section-external-results");
+    const btnSubmit = document.getElementById("btn-search-submit");
+
+    if (!statusArea || !resultsContainer) return;
+
+    // Reset y estado de carga
+    statusArea.innerHTML = `
+        <div class="search-loading-box">
+            <span class="loading-spinner">⏳</span>
+            <span>Buscando en YouTube y clasificando resultados según tus canales suscritos...</span>
+        </div>
+    `;
+    resultsContainer.classList.remove("hidden");
+    if (gridSubscribed) gridSubscribed.innerHTML = "";
+    if (gridExternal) gridExternal.innerHTML = "";
+    if (btnSubmit) btnSubmit.disabled = true;
+
+    try {
+        const response = await apiFetch(`/api/v1/search?query=${encodeURIComponent(query)}`);
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err?.error?.message || "Error al realizar la búsqueda.");
+        }
+
+        const data = await response.json();
+        const fromSub = data.fromSubscribedChannels || [];
+        const fromExt = data.fromExternalChannels || [];
+        const total = data.totalFound !== undefined ? data.totalFound : (fromSub.length + fromExt.length);
+
+        statusArea.innerHTML = "";
+
+        if (total === 0) {
+            statusArea.innerHTML = `
+                <div class="search-empty-state">
+                    <span style="font-size: 2.2rem;">🔍</span>
+                    <h4 style="margin: 8px 0; color: var(--text-primary);">No se encontraron videos disponibles</h4>
+                    <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto;">No se encontraron videos largos (>3 min) que coincidan con "${escapeHtml(query)}" o todos los resultados ya fueron vistos/ocultados.</p>
+                </div>
+            `;
+            if (sectionSub) sectionSub.classList.add("hidden");
+            if (sectionExt) sectionExt.classList.add("hidden");
+            return;
+        }
+
+        // Renderizar bloque 1: Canales Suscritos
+        if (badgeSub) badgeSub.textContent = fromSub.length;
+        if (sectionSub && gridSubscribed) {
+            sectionSub.classList.remove("hidden");
+            if (fromSub.length > 0) {
+                fromSub.forEach(video => {
+                    const card = createVideoCard(video);
+                    gridSubscribed.appendChild(card);
+                });
+            } else {
+                gridSubscribed.innerHTML = `
+                    <div class="search-notice-box" style="grid-column: 1 / -1;">
+                        <span>ℹ️ Ninguno de tus canales seguidos tiene videos destacados sobre este tema. Revisa los resultados generales debajo.</span>
+                    </div>
+                `;
+            }
+        }
+
+        // Renderizar bloque 2: Canales Externos
+        if (badgeExt) badgeExt.textContent = fromExt.length;
+        if (sectionExt && gridExternal) {
+            if (fromExt.length > 0) {
+                sectionExt.classList.remove("hidden");
+                fromExt.forEach(video => {
+                    const card = createVideoCard(video);
+                    gridExternal.appendChild(card);
+                });
+            } else {
+                sectionExt.classList.add("hidden");
+            }
+        }
+
+    } catch (error) {
+        console.error("Error en búsqueda:", error);
+        statusArea.innerHTML = `
+            <div class="search-error-box">
+                <span>⚠️ ${escapeHtml(error.message || "Error al conectar con el servidor.")}</span>
+            </div>
+        `;
+    } finally {
+        if (btnSubmit) btnSubmit.disabled = false;
+    }
+}
+

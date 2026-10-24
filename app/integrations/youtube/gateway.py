@@ -373,7 +373,8 @@ class YouTubeGateway:
         published_after: str = None,
         limit: int = 25,
         region_code: str = 'AR',
-        relevance_language: str = 'es'
+        relevance_language: str = 'es',
+        channel_id: str = None
     ) -> List[dict]:
         """
         Busca videos públicos usando la API de búsqueda (search.list).
@@ -391,6 +392,8 @@ class YouTubeGateway:
             "regionCode": region_code,
             "relevanceLanguage": relevance_language
         }
+        if channel_id:
+            params["channelId"] = channel_id
         if published_after:
             params["publishedAfter"] = published_after
 
