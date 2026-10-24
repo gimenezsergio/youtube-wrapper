@@ -871,6 +871,7 @@ async function renderDiscoveriesView() {
             }
             if (titleEl) {
                 titleEl.addEventListener("click", handleCandSingle);
+            }
             const candChannelLink = card.querySelector(".candidate-channel-link");
             if (candChannelLink) {
                 candChannelLink.addEventListener("click", (e) => e.stopPropagation());
@@ -3137,4 +3138,3 @@ async function executeSearch(query) {
         if (btnSubmit) btnSubmit.disabled = false;
     }
 }
-
