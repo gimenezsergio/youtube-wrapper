@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -177,6 +178,8 @@ def test_video_user_actions(auth_client, seed_data, app):
     data_open = json.loads(resp_open.data)
     assert data_open["watched"] is True
     assert data_open["url"] == "https://www.youtube.com/watch?v=vid_1"
+    assert data_open["openedInExternalBrowser"] is False
+    assert data_open["browserUsed"] is None
 
     # Verificar que aparece como visto
     resp_list = auth_client.get("/api/v1/videos?view=feed&watched=true")
@@ -338,3 +341,15 @@ def test_videos_performance(auth_client, seed_data, app):
     assert resp_chan.status_code == 200
     assert duration_chan < 0.5  # Menos de 500 ms de presupuesto
 
+
+def test_video_opening_is_owned_by_the_client():
+    source = (Path(__file__).parents[1] / "app" / "static" / "js" / "app.js").read_text()
+
+    open_call = 'window.open(defaultUrl, "_blank", "noopener,noreferrer")'
+    register_call = 'apiFetch(`/api/v1/videos/${videoId}/open`, { method: "POST" })'
+
+    assert open_call in source
+    assert register_call in source
+    assert source.index(open_call) < source.index(register_call)
+    assert "recentVideoOpens" in source
+    assert "pref-browser" not in source

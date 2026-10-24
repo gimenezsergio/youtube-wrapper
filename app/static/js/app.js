@@ -1,5 +1,42 @@
 // YouTube Curator — Main Application Entry (ES Module)
 
+const APP_BASE_PATH = (window.__APP_BASE_PATH__ || "").replace(/\/$/, "");
+
+function appUrl(path) {
+    if (!APP_BASE_PATH || !path.startsWith("/") || path.startsWith(`${APP_BASE_PATH}/`)) {
+        return path;
+    }
+    return `${APP_BASE_PATH}${path}`;
+}
+
+function appPathname() {
+    const path = window.location.pathname;
+    return APP_BASE_PATH && path.startsWith(APP_BASE_PATH)
+        ? path.slice(APP_BASE_PATH.length) || "/"
+        : path;
+}
+
+const nativeFetch = window.fetch.bind(window);
+window.fetch = (input, init) => {
+    if (typeof input === "string") input = appUrl(input);
+    return nativeFetch(input, init);
+};
+
+for (const method of ["pushState", "replaceState"]) {
+    const nativeMethod = window.history[method].bind(window.history);
+    window.history[method] = (state, unused, url) =>
+        nativeMethod(state, unused, typeof url === "string" ? appUrl(url) : url);
+}
+
+document.addEventListener("click", (event) => {
+    const anchor = event.target.closest?.("a[href]");
+    if (!anchor) return;
+    const href = anchor.getAttribute("href");
+    if (href?.startsWith("/") && !href.startsWith(`${APP_BASE_PATH}/`)) {
+        anchor.setAttribute("href", appUrl(href));
+    }
+}, true);
+
 let csrfToken = null;
 let activeFormKeywords = []; // Array temporal para las keywords en el formulario
 let currentCategories = []; // Array con el listado actual de categorías cargadas
@@ -419,7 +456,7 @@ function navigateToRoute(route) {
 }
 
 function handleCurrentRoute() {
-    const path = window.location.pathname;
+    const path = appPathname();
     
     // Resetear menú activo
     document.querySelectorAll(".sidebar-nav .nav-item").forEach(el => el.classList.remove("active"));
@@ -493,29 +530,14 @@ function renderSettingsView() {
                     
                     <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                         <button id="btn-settings-sync" class="btn-primary">🔄 Sincronizar Biblioteca</button>
-                        <a href="/api/v1/auth/login" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
+                        <a href="${appUrl('/api/v1/auth/login')}" class="btn-secondary" style="text-decoration: none; border-color: var(--accent); color: var(--accent);">🔑 Reconectar con Google</a>
                         <button id="btn-settings-logout" class="btn-secondary" style="border-color: #ef4444; color: #ef4444;">Cerrar Sesión</button>
                     </div>
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
-                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Navegador para Ver Videos</h3>
-                    <p class="form-instruction" style="margin-bottom: 15px;">Elegí en qué navegador abrir los videos al hacer clic en las tarjetas:</p>
-                    
-                    <div style="display: flex; flex-direction: column; gap: 10px;">
-                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
-                            <input type="radio" name="pref-browser" value="brave" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: var(--text-primary);">🦁 Brave Browser (Lanzar en ejecutable /usr/bin/brave-browser)</span>
-                        </label>
-                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
-                            <input type="radio" name="pref-browser" value="chrome" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: var(--text-primary);">🌐 Pestaña de Chrome (Navegador actual)</span>
-                        </label>
-                        <label class="filter-checkbox-label" style="background: rgba(0,0,0,0.02); padding: 12px 16px; border-radius: 8px; border: 1px solid var(--border-color); cursor: pointer; display: flex; align-items: center; gap: 10px;">
-                            <input type="radio" name="pref-browser" value="system" style="accent-color: var(--accent);">
-                            <span style="font-weight: 600; color: var(--text-primary);">🖥️ Navegador predeterminado del sistema (xdg-open)</span>
-                        </label>
-                    </div>
+                    <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Apertura de videos</h3>
+                    <p class="form-instruction" style="margin-bottom: 0;">Los videos se abren en una pestaña nueva del navegador actual.</p>
                 </div>
                 
                 <div class="channel-card" style="width: 100%; box-sizing: border-box; padding: 20px;">
@@ -619,20 +641,6 @@ function renderSettingsView() {
                 });
             });
         });
-
-    // Configurar radios de navegador preferido
-    const savedBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
-    const radioSelected = viewContainer.querySelector(`input[name="pref-browser"][value="${savedBrowser}"]`);
-    if (radioSelected) radioSelected.checked = true;
-
-    viewContainer.querySelectorAll('input[name="pref-browser"]').forEach(radio => {
-        radio.addEventListener("change", (e) => {
-            const val = e.target.value;
-            localStorage.setItem("yt_curator_preferred_browser", val);
-            const labelMap = { brave: "Brave Browser", chrome: "Chrome (Pestaña actual)", system: "Navegador del sistema" };
-            showNotification(`Preferencia guardada: abrir videos en ${labelMap[val] || val}`);
-        });
-    });
 
     document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
         triggerSubscriptionSync();
@@ -816,7 +824,7 @@ async function renderDiscoveriesView() {
             card.className = "video-card";
             card.id = `candidate-card-${video.id}`;
             card.innerHTML = `
-                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;" title="Clic para abrir, doble clic para copiar enlace">
+                <div class="video-thumbnail-container" style="cursor: pointer; position: relative;" title="Clic para abrir en una pestaña nueva">
                     <img class="video-thumbnail" src="${escapeHtml(video.thumbnailUrl || '/static/img/placeholder.jpg')}" alt="">
                     <span class="video-duration">${durationMin} min</span>
                 </div>
@@ -825,7 +833,7 @@ async function renderDiscoveriesView() {
                         ${escapeHtml(context.label)}
                     </span>
                     <h4 class="video-title" style="margin: 0; font-size: 0.95rem; line-height: 1.4; color: var(--text-primary); height: 2.8em; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
-                        <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" title="Clic para abrir, doble clic para copiar enlace">
+                        <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" style="color: inherit; text-decoration: none;" title="Clic para abrir en una pestaña nueva">
                             ${escapeHtml(video.title)}
                         </a>
                     </h4>
@@ -849,26 +857,10 @@ async function renderDiscoveriesView() {
                 </div>
             `;
             
-            let candTimeout = null;
-            let candPreventSingle = false;
-
             const handleCandSingle = (e) => {
                 if (e.ctrlKey || e.metaKey || e.shiftKey) return;
                 e.preventDefault();
-                candTimeout = setTimeout(() => {
-                    if (!candPreventSingle) {
-                        openVideoAndRegister(video.id, video.youtubeVideoId, card);
-                    }
-                    candPreventSingle = false;
-                }, 220);
-            };
-
-            const handleCandDbl = (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                clearTimeout(candTimeout);
-                candPreventSingle = true;
-                copyVideoUrlToClipboard(video.youtubeVideoId);
+                openVideoAndRegister(video.id, video.youtubeVideoId, card);
             };
 
             const thumbEl = card.querySelector(".video-thumbnail-container");
@@ -876,22 +868,12 @@ async function renderDiscoveriesView() {
 
             if (thumbEl) {
                 thumbEl.addEventListener("click", handleCandSingle);
-                thumbEl.addEventListener("dblclick", handleCandDbl);
             }
             if (titleEl) {
                 titleEl.addEventListener("click", handleCandSingle);
-                titleEl.addEventListener("dblclick", handleCandDbl);
-            }
-
-            card.addEventListener("dblclick", (e) => {
-                if (e.target.closest("button") || e.target.closest(".candidate-channel-link")) return;
-                handleCandDbl(e);
-            });
-
             const candChannelLink = card.querySelector(".candidate-channel-link");
             if (candChannelLink) {
                 candChannelLink.addEventListener("click", (e) => e.stopPropagation());
-                candChannelLink.addEventListener("dblclick", (e) => e.stopPropagation());
             }
 
             card.querySelector(".btn-copy-url-candidate").addEventListener("click", (e) => {
@@ -1350,7 +1332,7 @@ function renderChannelsViewGrouped(container, groups) {
     }
     listContainer.innerHTML = ""; // Limpiar contenido anterior
 
-    const path = window.location.pathname;
+    const path = appPathname();
     const catMatch = path.match(/^\/category\/(\d+)/);
 
     if (catMatch) {
@@ -1560,14 +1542,14 @@ function createVideoCard(video) {
     }
 
     card.innerHTML = `
-        <div class="video-thumb-wrapper" title="Clic para ver video, doble clic para copiar enlace">
+        <div class="video-thumb-wrapper" title="Clic para abrir en una pestaña nueva">
             <img src="${escapeHtml(video.thumbnailUrl || '')}" class="video-thumb-img" alt="${escapeHtml(video.title)}">
             ${durationTag}
         </div>
         <div class="video-info-section">
             ${avatarHtml}
             <div class="video-details-text">
-                <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para ver video, doble clic para copiar enlace">${escapeHtml(video.title)}</a>
+                <a class="video-card-title-link" href="${escapeHtml(videoUrl)}" target="_blank" rel="noopener noreferrer" title="Clic para abrir en una pestaña nueva">${escapeHtml(video.title)}</a>
                 <div class="video-card-meta-row">
                     <span class="video-channel-name-lbl">
                         ${channelTitleHtml}
@@ -1584,7 +1566,7 @@ function createVideoCard(video) {
                 <button class="btn-favorite ${video.favorited ? "active" : ""}" title="${video.favorited ? "Quitar de favoritos" : "Guardar en favoritos"}">
                     ${video.favorited ? "★" : "☆"}
                 </button>
-                <button class="btn-copy-url" title="Copiar dirección del video (o doble clic en la tarjeta)">
+                <button class="btn-copy-url" title="Copiar dirección del video">
                     📋
                 </button>
                 <button class="btn-toggle-watch ${video.watched ? "is-watched" : ""}" title="${video.watched ? "Marcar como no visto" : "Marcar como visto"}">
@@ -1594,42 +1576,18 @@ function createVideoCard(video) {
         </div>
     `;
 
-    let clickTimeout = null;
-    let preventSingleClick = false;
-
     const handleSingleClick = (e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey) return;
         e.preventDefault();
-        clickTimeout = setTimeout(() => {
-            if (!preventSingleClick) {
-                openVideoAndRegister(video.id, video.youtubeVideoId, card);
-            }
-            preventSingleClick = false;
-        }, 220);
-    };
-
-    const handleDoubleClick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        clearTimeout(clickTimeout);
-        preventSingleClick = true;
-        copyVideoUrlToClipboard(video.youtubeVideoId);
+        openVideoAndRegister(video.id, video.youtubeVideoId, card);
     };
 
     const thumbEl = card.querySelector(".video-thumb-wrapper");
     const titleEl = card.querySelector(".video-card-title-link");
 
     thumbEl.addEventListener("click", handleSingleClick);
-    thumbEl.addEventListener("dblclick", handleDoubleClick);
 
     titleEl.addEventListener("click", handleSingleClick);
-    titleEl.addEventListener("dblclick", handleDoubleClick);
-
-    // Doble clic en cualquier parte de la tarjeta para copiar enlace
-    card.addEventListener("dblclick", (e) => {
-        if (e.target.closest("button") || e.target.closest(".video-channel-title-link") || e.target.closest(".video-channel-avatar-link")) return;
-        handleDoubleClick(e);
-    });
 
     // Detener propagación de clics en los enlaces del canal
     const channelLinks = card.querySelectorAll(".video-channel-title-link, .video-channel-avatar-link");
@@ -1679,7 +1637,7 @@ function createVideoCard(video) {
                         favBtn.textContent = "☆";
                         favBtn.title = "Guardar en favoritos";
                         showNotification("Video quitado de Favoritos");
-                        if (window.location.pathname === "/favorites") {
+                        if (appPathname() === "/favorites") {
                             card.remove();
                             const grid = document.getElementById("favorites-video-grid");
                             if (grid && grid.children.length === 0) {
@@ -2688,7 +2646,7 @@ function showAuthErrorDialog() {
                 </p>
                 <div style="display: flex; justify-content: flex-end; gap: 10px;">
                     <button class="btn-secondary" id="btn-auth-err-cancel">Cancelar</button>
-                    <a href="/api/v1/auth/login" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                    <a href="${appUrl('/api/v1/auth/login')}" class="btn-primary" style="text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
                         🔑 Reconectar con Google
                     </a>
                 </div>
@@ -2785,14 +2743,20 @@ async function copyVideoUrlToClipboard(youtubeVideoId) {
     }
 }
 
-async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null) {
-    const defaultUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
-    const preferredBrowser = localStorage.getItem("yt_curator_preferred_browser") || "brave";
+const recentVideoOpens = new Map();
 
-    try {
-        const resp = await apiFetch(`/api/v1/videos/${videoId}/open?browser=${preferredBrowser}`, { method: "POST" });
+function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null) {
+    const now = Date.now();
+    const lastOpen = recentVideoOpens.get(videoId) || 0;
+    if (now - lastOpen < 700) return;
+    recentVideoOpens.set(videoId, now);
+
+    const defaultUrl = `https://www.youtube.com/watch?v=${youtubeVideoId}`;
+    window.open(defaultUrl, "_blank", "noopener,noreferrer");
+
+    apiFetch(`/api/v1/videos/${videoId}/open`, { method: "POST" })
+        .then(async (resp) => {
         if (resp.ok) {
-            const data = await resp.json();
             if (cardElement) {
                 cardElement.classList.add("watched-video");
                 const btnWatch = cardElement.querySelector(".btn-toggle-watch");
@@ -2803,18 +2767,9 @@ async function openVideoAndRegister(videoId, youtubeVideoId, cardElement = null)
                 }
             }
 
-            if (data.openedInExternalBrowser) {
-                showNotification(`🚀 Video abierto en ${data.browserUsed || "Brave Browser"}`);
-            } else {
-                window.open(data.url || defaultUrl, "_blank");
-            }
-        } else {
-            window.open(defaultUrl, "_blank");
         }
-    } catch (error) {
-        console.error("Error al abrir video:", error);
-        window.open(defaultUrl, "_blank");
-    }
+        })
+        .catch((error) => console.error("El video se abrió, pero no pudo registrarse:", error));
 }
 
 function showAlertDialog(title, message) {

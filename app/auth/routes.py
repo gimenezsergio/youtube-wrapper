@@ -166,7 +166,7 @@ def callback():
         session["email"] = email
         session["csrf_token"] = secrets.token_hex(32)
 
-        return redirect("/")
+        return redirect(f"{request.script_root}/" if request.script_root else "/")
 
     except Exception as e:
         return jsonify({

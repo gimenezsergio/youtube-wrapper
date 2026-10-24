@@ -1,6 +1,7 @@
 import os
 
 from flask import Flask
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from app.config import get_config
 from app.db import init_app as init_db
@@ -46,6 +47,7 @@ def check_auth():
 def create_app(config_name=None):
     """Fábrica de la aplicación Flask."""
     app = Flask(__name__, instance_relative_config=True)
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
     # Obtener configuración
     config_class = get_config(config_name)
