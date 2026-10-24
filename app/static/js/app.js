@@ -1850,12 +1850,31 @@ async function loadChannelsList(reset = true, cursor = "") {
                     categoriesHtml = '<span class="form-instruction">Sin clasificar</span>';
                 }
 
+                // URL de YouTube del canal
+                const channelUrl = channel.youtubeChannelId
+                    ? (channel.youtubeChannelId.startsWith("@")
+                        ? `https://www.youtube.com/${channel.youtubeChannelId}`
+                        : `https://www.youtube.com/channel/${encodeURIComponent(channel.youtubeChannelId)}`)
+                    : null;
+
+                const thumbnailHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="channel-thumbnail-link" title="Abrir canal en YouTube"><img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}"></a>`
+                    : `<img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">`;
+
+                const titleHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="channel-title-link" title="Abrir canal en YouTube">${escapeHtml(channel.title)}</a>`
+                    : escapeHtml(channel.title);
+
+                const openBtnHtml = channelUrl
+                    ? `<a href="${channelUrl}" target="_blank" rel="noopener noreferrer" class="btn-secondary btn-sm btn-open-channel" title="Abrir canal en YouTube"><span>Ver canal</span> <span style="font-size: 0.85em;">↗</span></a>`
+                    : '';
+
                 card.innerHTML = `
                     <div class="channel-card-top">
-                        <img src="${channel.thumbnailUrl || ''}" class="channel-thumbnail" alt="${escapeHtml(channel.title)}">
+                        ${thumbnailHtml}
                         <div class="channel-card-info">
                             <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                                <h4 class="channel-card-title" style="margin: 0;">${escapeHtml(channel.title)}</h4>
+                                <h4 class="channel-card-title" style="margin: 0;">${titleHtml}</h4>
                                 <button class="btn-channel-star ${channel.favorite ? "active" : ""}" title="${channel.favorite ? "Canal preferido (clic para quitar)" : "Marcar canal como preferido"}" data-channel-id="${channel.id}">
                                     ${channel.favorite ? "⭐" : "☆"}
                                 </button>
@@ -1866,6 +1885,7 @@ async function loadChannelsList(reset = true, cursor = "") {
                     <p class="channel-card-desc">${escapeHtml(channel.description || "Sin descripción")}</p>
                     <div class="channel-card-categories">${categoriesHtml}</div>
                     <div class="channel-card-actions">
+                        ${openBtnHtml}
                         <button class="btn-secondary btn-sm btn-classify">Categorías</button>
                         <button class="btn-secondary btn-sm btn-block-toggle">${channel.blocked ? "Desbloquear" : "Bloquear"}</button>
                     </div>

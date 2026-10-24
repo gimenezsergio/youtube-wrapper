@@ -1100,6 +1100,29 @@ body {
     text-overflow: ellipsis;
 }
 
+.channel-title-link {
+    color: var(--text-primary);
+    text-decoration: none;
+    transition: color var(--transition-fast);
+}
+
+.channel-title-link:hover {
+    color: var(--accent);
+    text-decoration: underline;
+}
+
+.channel-thumbnail-link {
+    display: inline-block;
+    border-radius: var(--radius-full);
+    transition: transform var(--transition-fast), opacity var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.channel-thumbnail-link:hover {
+    transform: scale(1.05);
+    opacity: 0.9;
+}
+
 .channel-badges {
     display: flex;
     flex-wrap: wrap;
@@ -1162,12 +1185,25 @@ body {
 
 .channel-card-actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: flex-end;
     gap: 8px;
     border-top: 1px solid var(--border-color);
     padding-top: 12px;
     margin-top: auto;
+}
+
+.btn-open-channel {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-secondary);
+}
+
+.btn-open-channel:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
 }
 
 .pagination-container {
