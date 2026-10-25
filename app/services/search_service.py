@@ -117,6 +117,9 @@ class SearchService:
         """)
         hidden_yt_ids = {r["youtube_video_id"] for r in hidden_cursor.fetchall()}
 
+        excluded_playlist_cursor = db.execute("SELECT youtube_video_id FROM excluded_playlist_videos")
+        excluded_playlist_yt_ids = {r["youtube_video_id"] for r in excluded_playlist_cursor.fetchall()}
+
         sub_cursor = db.execute(
             "SELECT youtube_channel_id FROM channels WHERE is_subscribed = 1 OR is_locally_followed = 1"
         )
@@ -138,6 +141,10 @@ class SearchService:
 
             # Excluir si está ocultado por feedback
             if yt_vid_id in hidden_yt_ids:
+                continue
+
+            # Excluir si pertenece a una lista de reproducción excluida
+            if yt_vid_id in excluded_playlist_yt_ids:
                 continue
 
             det = details_map.get(yt_vid_id, {})

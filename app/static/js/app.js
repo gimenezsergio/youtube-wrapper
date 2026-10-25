@@ -569,7 +569,13 @@ function renderSettingsView() {
     exclusionsContainer.style.cssText = "width: 100%; box-sizing: border-box; padding: 20px; margin-top: 20px;";
     exclusionsContainer.innerHTML = `
         <h3 style="margin-top: 0; color: var(--text-primary); font-size: 1.25rem;">Exclusiones y Restauraciones</h3>
-        <p class="form-instruction">Gestiona los canales bloqueados y videos ocultados de tu feed.</p>
+        <p class="form-instruction">Gestiona los canales bloqueados, videos ocultados y listas de reproducción excluidas.</p>
+        
+        <form id="form-exclude-playlist" style="display: flex; gap: 10px; margin: 15px 0 20px 0; max-width: 600px;">
+            <input type="text" id="input-exclude-playlist" placeholder="URL o ID de lista de reproducción a excluir" class="search-input-field" style="padding: 8px 12px; font-size: 0.9rem;" required>
+            <button type="submit" class="btn-secondary btn-sm" style="white-space: nowrap;">🚫 Excluir Playlist</button>
+        </form>
+
         <div id="settings-exclusions-list" style="margin-top: 15px; color: var(--text-secondary);">Cargando exclusiones...</div>
     `;
     viewContainer.querySelector(".channels-grid").appendChild(exclusionsContainer);
@@ -578,14 +584,33 @@ function renderSettingsView() {
         .then(r => r.json())
         .then(data => {
             const listDiv = document.getElementById("settings-exclusions-list");
-            if (data.blockedChannels.length === 0 && data.hiddenVideos.length === 0) {
+            const excludedPlaylists = data.excludedPlaylists || [];
+            if (data.blockedChannels.length === 0 && data.hiddenVideos.length === 0 && excludedPlaylists.length === 0) {
                 listDiv.innerText = "No tienes exclusiones activas.";
                 return;
             }
             
             let html = "";
+            if (excludedPlaylists.length > 0) {
+                html += `<h4 style="color: var(--text-primary); margin: 15px 0 8px 0; font-size: 1rem;">Playlists excluidas</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                excludedPlaylists.forEach(p => {
+                    const chInfo = p.channelTitle ? ` (${escapeHtml(p.channelTitle)})` : "";
+                    const countInfo = ` - ${p.videoCount} videos`;
+                    html += `
+                        <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
+                            <div style="display: flex; flex-direction: column; gap: 2px;">
+                                <strong style="color: var(--text-primary); font-size: 0.9rem;">${escapeHtml(p.title)}${chInfo}</strong>
+                                <span style="font-size: 0.75rem; color: var(--text-muted);">ID: ${escapeHtml(p.youtubePlaylistId)}${countInfo}</span>
+                            </div>
+                            <button class="btn-secondary btn-sm btn-remove-playlist-exclusion" data-pid="${escapeHtml(p.youtubePlaylistId)}" style="color: #ef4444; border-color: rgba(239,68,68,0.2);">Quitar exclusión</button>
+                        </li>
+                    `;
+                });
+                html += `</ul>`;
+            }
+
             if (data.blockedChannels.length > 0) {
-                html += `<h4 style="color: var(--text-primary); margin: 15px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
+                html += `<h4 style="color: var(--text-primary); margin: 20px 0 8px 0; font-size: 1rem;">Canales bloqueados</h4><ul style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px;">`;
                 data.blockedChannels.forEach(c => {
                     html += `
                         <li style="display: flex; justify-content: space-between; align-items: center; background: rgba(0,0,0,0.02); padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-color);">
@@ -613,6 +638,19 @@ function renderSettingsView() {
             listDiv.innerHTML = html;
             
             // Add listeners
+            listDiv.querySelectorAll(".btn-remove-playlist-exclusion").forEach(btn => {
+                btn.addEventListener("click", async () => {
+                    const pid = btn.dataset.pid;
+                    const resp = await apiFetch(`/api/v1/settings/excluded-playlists/${encodeURIComponent(pid)}`, {
+                        method: "DELETE"
+                    });
+                    if (resp.ok) {
+                        showNotification("Playlist removida de exclusiones.");
+                        renderSettingsView();
+                    }
+                });
+            });
+
             listDiv.querySelectorAll(".btn-unblock-chan").forEach(btn => {
                 btn.addEventListener("click", async () => {
                     const cid = btn.dataset.cid;
@@ -641,6 +679,30 @@ function renderSettingsView() {
                 });
             });
         });
+
+    document.getElementById("form-exclude-playlist")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const input = document.getElementById("input-exclude-playlist");
+        const val = input ? input.value.trim() : "";
+        if (!val) return;
+        try {
+            showNotification("Indexando videos de la playlist para excluirlos...");
+            const resp = await apiFetch("/api/v1/settings/excluded-playlists", {
+                method: "POST",
+                body: { playlist: val }
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                showNotification(`Playlist excluida (${data.videosExcludedCount} videos excluidos).`);
+                renderSettingsView();
+            } else {
+                const err = await resp.json();
+                showNotification(err?.error?.message || "Error al excluir playlist", 4000);
+            }
+        } catch (err) {
+            showNotification("Error al excluir playlist", 4000);
+        }
+    });
 
     document.getElementById("btn-settings-sync")?.addEventListener("click", () => {
         triggerSubscriptionSync();
