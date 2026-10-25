@@ -354,7 +354,50 @@ def list_discovery_exclusions():
             video_obj = _serialize_video(row, channel_row, cat_ids)
             hidden_videos.append({"video": video_obj, "categoryId": row["category_id"], "hiddenAt": row["hidden_at"]})
 
-        return jsonify({"blockedChannels": blocked_channels, "hiddenVideos": hidden_videos})
+        from app.services.playlist_exclusion_service import PlaylistExclusionService
+        excluded_playlists = PlaylistExclusionService().list_excluded_playlists(db)
+
+        return jsonify({
+            "blockedChannels": blocked_channels,
+            "hiddenVideos": hidden_videos,
+            "excludedPlaylists": excluded_playlists
+        })
+    finally:
+        db.close()
+
+
+@discovery_bp.route("/settings/excluded-playlists", methods=["POST"])
+def add_excluded_playlist():
+    body = request.get_json(silent=True) or {}
+    playlist = body.get("playlist") or body.get("playlistId")
+    title = body.get("title")
+    if not playlist or not isinstance(playlist, str):
+        return make_error_response("VALIDATION_ERROR", "Debe proporcionar una URL o ID de lista de reproducción.", 422)
+
+    db = get_db_connection(current_app.config["DATABASE_PATH"])
+    try:
+        from app.services.playlist_exclusion_service import PlaylistExclusionService
+        svc = PlaylistExclusionService()
+        result = svc.exclude_playlist(db, playlist, title)
+        return jsonify(result), 201
+    except ValueError as ve:
+        return make_error_response("VALIDATION_ERROR", str(ve), 422)
+    except Exception as e:
+        return make_error_response("SERVER_ERROR", f"Error al excluir lista de reproducción: {e}", 500)
+    finally:
+        db.close()
+
+
+@discovery_bp.route("/settings/excluded-playlists/<playlist_id>", methods=["DELETE"])
+def remove_excluded_playlist(playlist_id):
+    db = get_db_connection(current_app.config["DATABASE_PATH"])
+    try:
+        from app.services.playlist_exclusion_service import PlaylistExclusionService
+        svc = PlaylistExclusionService()
+        deleted = svc.remove_excluded_playlist(db, playlist_id)
+        if not deleted:
+            return make_error_response("NOT_FOUND", "Lista de reproducción no encontrada en exclusiones.", 404)
+        return "", 204
     finally:
         db.close()
 

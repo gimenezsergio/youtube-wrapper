@@ -16,7 +16,6 @@ class DiscoveryRepository:
     @staticmethod
     def get_hidden_videos(db, category_id: int) -> Set[str]:
         """Obtiene el conjunto de IDs de YouTube de videos ocultados en la categoría."""
-        # Se buscan en discovery_feedback con acción 'hide_video' o discovery_candidates con status = 'hidden'
         cursor = db.execute("""
             SELECT v.youtube_video_id
             FROM discovery_feedback df
@@ -27,6 +26,9 @@ class DiscoveryRepository:
             FROM discovery_candidates dc
             JOIN videos v ON dc.video_id = v.id
             WHERE dc.category_id = ? AND dc.status = 'hidden'
+            UNION
+            SELECT youtube_video_id
+            FROM excluded_playlist_videos
         """, (category_id, category_id))
         return {row["youtube_video_id"] for row in cursor.fetchall()}
 
@@ -412,7 +414,12 @@ class DiscoveryRepository:
         Retorna las recomendaciones activas del lote más reciente, los resúmenes de lote
         y opcionalmente el siguiente cursor (basado en offset para paginación).
         """
-        where_parts = ["dc.status = 'active'", "ch.is_blocked = 0", "COALESCE(vus.liked, 0) = 0"]
+        where_parts = [
+            "dc.status = 'active'",
+            "ch.is_blocked = 0",
+            "COALESCE(vus.liked, 0) = 0",
+            "v.youtube_video_id NOT IN (SELECT youtube_video_id FROM excluded_playlist_videos)"
+        ]
         params = []
 
         if category_id:

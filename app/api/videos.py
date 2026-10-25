@@ -74,6 +74,11 @@ def _build_where_clause(category_id, channel_ids_str, watched, origin, query, fa
         "v.id NOT IN (SELECT video_id FROM discovery_feedback WHERE action = 'hide_video' AND video_id IS NOT NULL)"
     )
 
+    # Excluir videos de listas de reproducción excluidas
+    where_clauses.append(
+        "v.youtube_video_id NOT IN (SELECT youtube_video_id FROM excluded_playlist_videos)"
+    )
+
     # Filtro de origen general (seguidos o candidatos de descubrimiento)
     where_clauses.append("""
         (c.is_subscribed = 1

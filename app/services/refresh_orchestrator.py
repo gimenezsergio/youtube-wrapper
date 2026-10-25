@@ -82,6 +82,12 @@ class RefreshOrchestrator:
             has_success = True
 
         elif stage == "followed_videos":
+            from app.services.playlist_exclusion_service import PlaylistExclusionService
+            try:
+                PlaylistExclusionService(gateway=self.gateway).sync_all_excluded_playlists(db)
+            except Exception as e:
+                logger.warning(f"Error sincronizando playlists excluidas durante refresh: {e}")
+
             video_service = VideoService(gateway=self.gateway)
             counters_entry = video_service.sync_videos(db, heartbeat_callback=heartbeat_callback)
             db.commit()
